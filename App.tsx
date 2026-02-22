@@ -8,7 +8,7 @@ import { BusList } from './components/BusList';
 import { BusDetailSheet } from './components/BusDetailSheet';
 import { MapView } from './components/MapView';
 import { PlanTripView } from './components/PlanTripView';
-import { LocateFixed } from 'lucide-react';
+import { AppHeader } from './components/AppHeader';
 
 // Default to UNC Student Union if geo denied
 const DEFAULT_LOCATION: Coordinate = { lat: 35.9105, lon: -79.0478 };
@@ -56,14 +56,7 @@ function App() {
 
   return (
     <div className="h-full w-full flex flex-col bg-gray-50 overflow-hidden relative">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-100 pt-12 pb-3 px-4 flex justify-between items-center shadow-sm z-10 shrink-0">
-        <div className="flex items-center gap-2">
-           <h1 className="text-2xl font-black text-p2p-blue tracking-tight">P<span className="text-p2p-red">2</span>P <span className="text-p2p-black">Live</span></h1>
-           <span className="px-2 py-0.5 bg-p2p-light-red/30 text-p2p-red text-[10px] font-bold uppercase rounded-full tracking-wide">UNC Chapel Hill</span>
-        </div>
-        {loadingLoc && <LocateFixed className="animate-spin text-gray-300" size={20} />}
-      </header>
+      <AppHeader loadingLoc={loadingLoc} />
 
       {/* Main Content Area */}
       <main className="flex-1 relative overflow-hidden">
