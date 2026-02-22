@@ -3,6 +3,8 @@
  * TODO: Replace with real auth (e.g. /api/auth/login, JWT, refresh).
  */
 
+import { listDrivers } from './peopleStore';
+
 export type Role = 'student' | 'admin' | 'manager' | 'driver';
 
 export interface OpsUser {
@@ -57,7 +59,7 @@ function setStoredSession(session: OpsSession | null): void {
 
 /**
  * Login with username (or role) and password.
- * MVP: accepts "student"/"student", "admin"/"admin", "manager"/"manager", "driver"/"driver".
+ * MVP: fixed USERS for student/admin/manager + built-in drivers; any driver in peopleStore can log in with email + "driver".
  */
 export function login(credentials: { username: string; password: string }): OpsUser | null {
   const u = credentials.username.trim().toLowerCase();
@@ -65,11 +67,22 @@ export function login(credentials: { username: string; password: string }): OpsU
   const found = USERS.find(
     (x) => (x.role === u || x.id === u || x.name.toLowerCase().includes(u)) && x.password === p
   );
-  if (!found) return null;
-  const user: OpsUser = { id: found.id, name: found.name, role: found.role, email: found.email };
-  const session: OpsSession = { user, expiresAt: Date.now() + SESSION_TTL_MS };
-  setStoredSession(session);
-  return user;
+  if (found) {
+    const user: OpsUser = { id: found.id, name: found.name, role: found.role, email: found.email };
+    const session: OpsSession = { user, expiresAt: Date.now() + SESSION_TTL_MS };
+    setStoredSession(session);
+    return user;
+  }
+  // Driver from peopleStore: login with email + password "driver"
+  const drivers = listDrivers();
+  const driver = drivers.find((d) => d.email.toLowerCase() === u);
+  if (driver && p === 'driver') {
+    const user: OpsUser = { id: driver.id, name: driver.fullName, role: 'driver', email: driver.email };
+    const session: OpsSession = { user, expiresAt: Date.now() + SESSION_TTL_MS };
+    setStoredSession(session);
+    return user;
+  }
+  return null;
 }
 
 export function logout(): void {

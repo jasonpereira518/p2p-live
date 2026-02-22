@@ -13,9 +13,6 @@ import {
   MOCK_COUNTS_DATE,
   MOCK_COUNTS_ROWS,
   MOCK_COMPLAINTS,
-  MOCK_ADMINS,
-  MOCK_MANAGERS,
-  MOCK_DRIVERS_TEAM,
   MOCK_STAT_ACTIVE_BUSES,
   MOCK_STAT_DRIVERS_LOGGED_IN,
   MOCK_STAT_BOARDINGS_TODAY,
@@ -23,6 +20,9 @@ import {
   MOCK_STAT_OFF_ROUTE_BUSES,
   MOCK_RIDERSHIP,
 } from '../../data/mockOps';
+import { listAdmins, listManagers, listDrivers } from '../../ops/peopleStore';
+import { getDisplayName, getAvatarUrl } from '../../ops/peopleStore';
+import { ManageDrivers } from '../../components/ops/ManageDrivers';
 import { StatCard } from '../../components/ops/StatCard';
 import { OpsTabs, type OpsTabId } from '../../components/ops/OpsTabs';
 import { CapacityBar } from '../../components/ops/CapacityBar';
@@ -42,6 +42,10 @@ export function OpsManagerPage() {
   const [flaggedNotes, setFlaggedNotes] = useState<Record<string, boolean>>({});
   const [noteSearch, setNoteSearch] = useState('');
   const [selectedNote, setSelectedNote] = useState<{ driverId: string; driverName: string; date: string; text: string; updatedAt: number; tags?: string[] } | null>(null);
+  const [driversVersion, setDriversVersion] = useState(0);
+  const admins = listAdmins();
+  const managers = listManagers();
+  const drivers = listDrivers();
 
   const unresolvedCount = useMemo(() => MOCK_COMPLAINTS.filter((c) => (complaintStates[c.id]?.status ?? 'new') !== 'resolved').length, [complaintStates]);
 
@@ -295,52 +299,55 @@ export function OpsManagerPage() {
             )}
 
             {activeTab === 'team' && (
-              <div className="grid gap-6 md:grid-cols-3">
-                <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
-                  <h2 className="text-sm font-semibold uppercase tracking-wider text-p2p-blue mb-3">Admins</h2>
-                  <ul className="space-y-2">
-                    {MOCK_ADMINS.map((m) => (
-                      <li key={m.id} className="flex items-center gap-3">
-                        <Avatar src={m.avatarUrl} alt={m.name} name={m.name} size="md" />
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium text-gray-900">{getDriverDisplayName(m.id, m.name)}</p>
-                          <p className="text-xs text-gray-500">{m.email}</p>
-                        </div>
-                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-p2p-blue/20 text-p2p-blue shrink-0">Admin</span>
-                      </li>
-                    ))}
-                  </ul>
+              <div className="space-y-6">
+                <div className="grid gap-6 md:grid-cols-3">
+                  <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+                    <h2 className="text-sm font-semibold uppercase tracking-wider text-p2p-blue mb-3">Admins</h2>
+                    <ul className="space-y-2">
+                      {admins.map((m) => (
+                        <li key={m.id} className="flex items-center gap-3">
+                          <Avatar src={getAvatarUrl(m)} alt={m.fullName} name={m.fullName} size="md" />
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-gray-900">{getDisplayName(m)}</p>
+                            <p className="text-xs text-gray-500">{m.email}</p>
+                          </div>
+                          <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-p2p-blue/20 text-p2p-blue shrink-0">Admin</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+                    <h2 className="text-sm font-semibold uppercase tracking-wider text-emerald-600 mb-3">Managers</h2>
+                    <ul className="space-y-2">
+                      {managers.map((m) => (
+                        <li key={m.id} className="flex items-center gap-3">
+                          <Avatar src={getAvatarUrl(m)} alt={m.fullName} name={m.fullName} size="md" />
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-gray-900">{getDisplayName(m)}</p>
+                            <p className="text-xs text-gray-500">{m.email}</p>
+                          </div>
+                          <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-800 shrink-0">Manager</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+                    <h2 className="text-sm font-semibold uppercase tracking-wider text-amber-600 mb-3">Drivers</h2>
+                    <ul className="space-y-2">
+                      {drivers.map((m) => (
+                        <li key={m.id} className="flex items-center gap-3">
+                          <Avatar src={getAvatarUrl(m)} alt={m.fullName} name={m.fullName} size="md" />
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-gray-900">{getDisplayName(m)}</p>
+                            <p className="text-xs text-gray-500">{m.email}</p>
+                          </div>
+                          <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-800 shrink-0">Driver</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 </div>
-                <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
-                  <h2 className="text-sm font-semibold uppercase tracking-wider text-emerald-600 mb-3">Managers</h2>
-                  <ul className="space-y-2">
-                    {MOCK_MANAGERS.map((m) => (
-                      <li key={m.id} className="flex items-center gap-3">
-                        <Avatar src={m.avatarUrl} alt={m.name} name={m.name} size="md" />
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium text-gray-900">{m.name}</p>
-                          <p className="text-xs text-gray-500">{m.email}</p>
-                        </div>
-                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-800 shrink-0">Manager</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
-                  <h2 className="text-sm font-semibold uppercase tracking-wider text-amber-600 mb-3">Drivers</h2>
-                  <ul className="space-y-2">
-                    {MOCK_DRIVERS_TEAM.map((m) => (
-                      <li key={m.id} className="flex items-center gap-3">
-                        <Avatar src={getDriverAvatarUrl(m.id, m.avatarUrl)} alt={m.name} name={m.name} size="md" />
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium text-gray-900">{getDriverDisplayName(m.id, m.name)}</p>
-                          <p className="text-xs text-gray-500">{m.email}</p>
-                        </div>
-                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-800 shrink-0">Driver</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                <ManageDrivers key={driversVersion} onDriversChange={() => setDriversVersion((v) => v + 1)} />
               </div>
             )}
           </div>

@@ -59,7 +59,7 @@ export function OpsLoginPage() {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="student / admin / manager / driver"
+                placeholder="student, admin, manager, driver, or driver email"
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-p2p-blue focus:ring-2 focus:ring-p2p-blue/20 outline-none transition-all"
                 required
                 autoComplete="username"
@@ -106,7 +106,7 @@ export function OpsLoginPage() {
             </button>
           </form>
           <p className="mt-6 text-center text-xs text-gray-400">
-            Demo: student/student · admin/admin · manager/manager · driver/driver
+            Demo: student/student · admin/admin · manager/manager · driver/driver. Drivers added by manager: use email + password &quot;driver&quot;.
           </p>
         </div>
         <p className="mt-6 text-center">

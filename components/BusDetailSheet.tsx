@@ -33,17 +33,17 @@ export const BusDetailSheet: React.FC<BusDetailSheetProps> = ({ vehicle, stops, 
         onClick={onClose}
       />
 
-      {/* Sheet */}
-      <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl shadow-2xl z-50 pointer-events-auto max-h-[80vh] overflow-y-auto animate-slide-up sm:m-4">
-        
-        {/* Handle for mobile feeling */}
-        <div className="w-full flex justify-center pt-3 pb-1 sm:hidden">
-          <div className="w-12 h-1.5 bg-gray-200 rounded-full" />
-        </div>
-
-        <div className="p-5">
-          {/* Header */}
-          <div className="flex justify-between items-start mb-6">
+      {/* Sheet: flex column so header stays fixed and body scrolls */}
+      <div 
+        className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl shadow-2xl z-50 pointer-events-auto max-h-[85vh] flex flex-col animate-slide-up sm:m-4"
+        style={{ minHeight: 0 }}
+      >
+        {/* Header: fixed, no scroll */}
+        <div className="shrink-0">
+          <div className="w-full flex justify-center pt-3 pb-1 sm:hidden">
+            <div className="w-12 h-1.5 bg-gray-200 rounded-full" />
+          </div>
+          <div className="p-5 pb-0 flex justify-between items-start">
             <div>
               <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold mb-2 ${
                 vehicle.routeId === 'p2p-express' ? 'bg-p2p-blue text-white' : 'bg-p2p-red text-white'
@@ -56,11 +56,18 @@ export const BusDetailSheet: React.FC<BusDetailSheetProps> = ({ vehicle, stops, 
             <button 
               onClick={onClose}
               className="p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
+              aria-label="Close"
             >
               <X size={20} className="text-gray-600" />
             </button>
           </div>
+        </div>
 
+        {/* Scrollable body: min-height 0 + overflow-y auto for flex child scrolling (iOS Safari: -webkit-overflow-scrolling touch) */}
+        <div 
+          className="flex-1 min-h-0 overflow-y-auto p-5 pt-4"
+          style={{ WebkitOverflowScrolling: 'touch' }}
+        >
           {/* Current Status */}
           <div className="mb-6 p-4 bg-gray-50 rounded-xl border border-gray-100">
             <div className="flex items-center gap-3 mb-3">
@@ -91,9 +98,7 @@ export const BusDetailSheet: React.FC<BusDetailSheetProps> = ({ vehicle, stops, 
             <div className="relative pl-2 space-y-6 before:content-[''] before:absolute before:left-[19px] before:top-2 before:bottom-4 before:w-0.5 before:bg-gray-200">
               {vehicle.upcomingStops.map((stop, idx) => (
                 <div key={`${stop.stopId}-${idx}`} className="relative flex items-center justify-between pl-8 group">
-                  {/* Dot */}
                   <div className={`absolute left-3 w-4 h-4 rounded-full border-2 border-white shadow-sm z-10 ${idx === 0 ? 'bg-p2p-blue' : 'bg-gray-300'}`} />
-                  
                   <span className={`text-sm font-medium ${idx === 0 ? 'text-gray-900' : 'text-gray-600'}`}>
                     {getStopName(stop.stopId)}
                   </span>

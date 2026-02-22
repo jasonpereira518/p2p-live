@@ -19,7 +19,7 @@ import { getDriverProfile, setDriverProfile, type DriverProfile } from '../../st
 import { getRosterPerson } from '../../data/opsRoster';
 import { getSession } from '../../ops/auth';
 import { DriverLocationMap } from '../../components/ops/DriverLocationMap';
-import { Avatar } from '../../components/ops/Avatar';
+import { Modal } from '../../components/ops/Modal';
 import { User } from 'lucide-react';
 
 const NOTE_DEBOUNCE_MS = 500;
@@ -44,6 +44,7 @@ export function OpsDriverPage() {
   const [noteTags, setNoteTags] = useState<string[]>([]);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const profileButtonRef = React.useRef<HTMLButtonElement>(null);
   const [profileForm, setProfileForm] = useState<DriverProfile>(() => {
     const p = getDriverProfile(driverId);
     const roster = getRosterPerson(driverId);
@@ -175,6 +176,7 @@ export function OpsDriverPage() {
         <div className="flex items-center justify-between mb-4">
           <span className="text-lg font-semibold text-gray-900">Driver</span>
           <button
+            ref={profileButtonRef}
             type="button"
             onClick={() => { refreshProfileForm(); setProfileModalOpen(true); }}
             className="p-2 rounded-xl bg-p2p-light-blue/50 text-p2p-blue hover:bg-p2p-light-blue/70 focus:outline-none focus:ring-2 focus:ring-p2p-blue"
@@ -289,11 +291,15 @@ export function OpsDriverPage() {
         </section>
       </div>
 
-      {/* Profile edit modal */}
-      {profileModalOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full my-8 p-6">
-            <h2 className="text-lg font-bold text-gray-900 mb-4">Edit profile</h2>
+      {/* Profile edit modal — portal overlay so map is covered and non-interactive */}
+      <Modal
+        open={profileModalOpen}
+        onClose={() => setProfileModalOpen(false)}
+        title="Edit profile"
+        triggerRef={profileButtonRef}
+      >
+        <div className="bg-white rounded-2xl shadow-xl max-w-md w-full my-8 p-6">
+            <h2 id="modal-title" className="text-lg font-bold text-gray-900 mb-4">Edit profile</h2>
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1">Full name</label>
@@ -373,8 +379,7 @@ export function OpsDriverPage() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+      </Modal>
 
       {/* Delete confirmation */}
       {deleteConfirm && (

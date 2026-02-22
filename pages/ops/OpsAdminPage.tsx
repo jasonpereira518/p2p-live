@@ -14,9 +14,6 @@ import {
   MOCK_COUNTS_DATE,
   MOCK_COUNTS_ROWS,
   MOCK_COMPLAINTS,
-  MOCK_ADMINS,
-  MOCK_MANAGERS,
-  MOCK_DRIVERS_TEAM,
   MOCK_STAT_ACTIVE_BUSES,
   MOCK_STAT_DRIVERS_LOGGED_IN,
   MOCK_STAT_BOARDINGS_TODAY,
@@ -32,6 +29,7 @@ import { clearOpsLocalCache } from '../../storage/opsStorage';
 import { getComplaintStates, setComplaintStatus, setComplaintInternalNote, getAllDriverShifts, getAllDriverNotes } from '../../storage/opsStorage';
 import { getDriverDisplayName, getDriverAvatarUrl } from '../../storage/opsProfileStore';
 import { getRosterName, getRosterAvatar } from '../../data/opsRoster';
+import { listAdmins, listManagers, listDrivers, getDisplayName, getAvatarUrl } from '../../ops/peopleStore';
 import { Avatar } from '../../components/ops/Avatar';
 import { Bus, Users, TrendingUp, AlertCircle, MapPin } from 'lucide-react';
 
@@ -305,11 +303,11 @@ export function OpsAdminPage() {
                 <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
                   <h2 className="text-sm font-semibold uppercase tracking-wider text-p2p-blue mb-3">Admins</h2>
                   <ul className="space-y-2">
-                    {MOCK_ADMINS.map((m) => (
+                    {listAdmins().map((m) => (
                       <li key={m.id} className="flex items-center gap-3">
-                        <Avatar src={m.avatarUrl} alt={m.name} name={m.name} size="md" />
+                        <Avatar src={getAvatarUrl(m)} alt={m.fullName} name={m.fullName} size="md" />
                         <div className="min-w-0 flex-1">
-                          <p className="font-medium text-gray-900">{m.name}</p>
+                          <p className="font-medium text-gray-900">{getDisplayName(m)}</p>
                           <p className="text-xs text-gray-500">{m.email}</p>
                         </div>
                         <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-p2p-blue/20 text-p2p-blue shrink-0">Admin</span>
@@ -320,11 +318,11 @@ export function OpsAdminPage() {
                 <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
                   <h2 className="text-sm font-semibold uppercase tracking-wider text-emerald-600 mb-3">Managers</h2>
                   <ul className="space-y-2">
-                    {MOCK_MANAGERS.map((m) => (
+                    {listManagers().map((m) => (
                       <li key={m.id} className="flex items-center gap-3">
-                        <Avatar src={m.avatarUrl} alt={m.name} name={m.name} size="md" />
+                        <Avatar src={getAvatarUrl(m)} alt={m.fullName} name={m.fullName} size="md" />
                         <div className="min-w-0 flex-1">
-                          <p className="font-medium text-gray-900">{m.name}</p>
+                          <p className="font-medium text-gray-900">{getDisplayName(m)}</p>
                           <p className="text-xs text-gray-500">{m.email}</p>
                         </div>
                         <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-800 shrink-0">Manager</span>
@@ -335,11 +333,11 @@ export function OpsAdminPage() {
                 <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
                   <h2 className="text-sm font-semibold uppercase tracking-wider text-amber-600 mb-3">Drivers</h2>
                   <ul className="space-y-2">
-                    {MOCK_DRIVERS_TEAM.map((m) => (
+                    {listDrivers().map((m) => (
                       <li key={m.id} className="flex items-center gap-3">
-                        <Avatar src={getDriverAvatarUrl(m.id, m.avatarUrl)} alt={m.name} name={m.name} size="md" />
+                        <Avatar src={getAvatarUrl(m)} alt={m.fullName} name={m.fullName} size="md" />
                         <div className="min-w-0 flex-1">
-                          <p className="font-medium text-gray-900">{getDriverDisplayName(m.id, m.name)}</p>
+                          <p className="font-medium text-gray-900">{getDisplayName(m)}</p>
                           <p className="text-xs text-gray-500">{m.email}</p>
                         </div>
                         <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-800 shrink-0">Driver</span>

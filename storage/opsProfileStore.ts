@@ -1,10 +1,9 @@
 /**
- * Driver profile (editable): name, displayName, phone, avatarUrl, bio.
- * Persisted in localStorage; used everywhere driver appears (sessions, complaints, team).
- * TODO: Replace with /api/ops/drivers/:id/profile.
+ * Driver profile — thin wrapper over peopleStore so driver self-edits and manager edits share one source.
  */
 
-const KEY = 'p2p-ops-driver-profiles';
+import * as peopleStore from '../ops/peopleStore';
+import type { Person } from '../ops/peopleStore';
 
 export interface DriverProfile {
   fullName: string;
@@ -15,46 +14,45 @@ export interface DriverProfile {
   updatedAt: number;
 }
 
+function personToProfile(p: Person): DriverProfile {
+  return {
+    fullName: p.fullName,
+    displayName: p.displayName,
+    phone: p.phone,
+    avatarUrl: p.avatarUrl,
+    bio: p.bio,
+    updatedAt: p.updatedAt,
+  };
+}
+
 export function getDriverProfile(driverId: string): DriverProfile | null {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return null;
-    const all: Record<string, DriverProfile> = JSON.parse(raw);
-    return all[driverId] ?? null;
-  } catch {
-    return null;
-  }
+  const p = peopleStore.getPerson(driverId);
+  if (!p || p.role !== 'driver') return null;
+  return personToProfile(p);
 }
 
 export function setDriverProfile(driverId: string, profile: Partial<DriverProfile>): void {
-  try {
-    const raw = localStorage.getItem(KEY);
-    const all: Record<string, DriverProfile> = raw ? JSON.parse(raw) : {};
-    const existing = all[driverId];
-    const updated: DriverProfile = {
-      fullName: profile.fullName ?? existing?.fullName ?? driverId,
-      displayName: profile.displayName !== undefined ? profile.displayName : existing?.displayName,
-      phone: profile.phone !== undefined ? profile.phone : existing?.phone,
-      avatarUrl: profile.avatarUrl !== undefined ? profile.avatarUrl : existing?.avatarUrl,
-      bio: profile.bio !== undefined ? profile.bio : existing?.bio,
-      updatedAt: Date.now(),
-    };
-    all[driverId] = updated;
-    localStorage.setItem(KEY, JSON.stringify(all));
-  } catch (_) {}
+  peopleStore.updateDriver(
+    driverId,
+    {
+      fullName: profile.fullName,
+      displayName: profile.displayName,
+      phone: profile.phone,
+      avatarUrl: profile.avatarUrl,
+      bio: profile.bio,
+    },
+    driverId
+  );
 }
 
-/** Display name for a driver: profile displayName or fullName, else roster, else id. */
 export function getDriverDisplayName(driverId: string, rosterName?: string): string {
-  const p = getDriverProfile(driverId);
-  if (p?.displayName) return p.displayName;
-  if (p?.fullName) return p.fullName;
+  const p = peopleStore.getPerson(driverId);
+  if (p) return peopleStore.getDisplayName(p);
   return rosterName ?? driverId;
 }
 
-/** Avatar URL for a driver: profile avatarUrl else roster. */
 export function getDriverAvatarUrl(driverId: string, rosterAvatar?: string): string | undefined {
-  const p = getDriverProfile(driverId);
+  const p = peopleStore.getPerson(driverId);
   if (p?.avatarUrl) return p.avatarUrl;
   return rosterAvatar;
 }
