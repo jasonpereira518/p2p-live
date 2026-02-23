@@ -191,6 +191,46 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
+  const geocodeMatch = req.url && req.method === 'GET' && req.url.startsWith('/api/mapbox/geocode');
+  if (geocodeMatch) {
+    if (!MAPBOX_TOKEN) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'MAPBOX_TOKEN is not set' }));
+      return;
+    }
+    const u = new URL(req.url, 'http://localhost');
+    const q = u.searchParams.get('q') || '';
+    const proximity = u.searchParams.get('proximity') || '-79.0478,35.9105';
+    const bbox = '-79.08,35.89,-79.03,35.93';
+    if (!q.trim()) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing q query parameter' }));
+      return;
+    }
+    const encodedQ = encodeURIComponent(q.trim());
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedQ}.json?autocomplete=true&limit=5&proximity=${encodeURIComponent(proximity)}&bbox=${bbox}&access_token=${encodeURIComponent(MAPBOX_TOKEN)}`;
+    fetch(url)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('Mapbox Geocoding ' + r.status))))
+      .then((data) => {
+        const features = Array.isArray(data.features) ? data.features : [];
+        const results = features
+          .map((f) => ({
+            id: f.id,
+            place_name: f.place_name,
+            coordinates: Array.isArray(f.center) && f.center.length >= 2 ? [f.center[0], f.center[1]] : null,
+            type: Array.isArray(f.place_type) && f.place_type.length ? f.place_type[0] : 'unknown',
+          }))
+          .filter((r) => !!r.coordinates);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ results }));
+      })
+      .catch((err) => {
+        console.error('Mapbox geocode error:', err.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      });
+    return;
+  }
   const routeMatch = req.url && req.method === 'GET' && req.url.startsWith('/api/mapbox/route');
   if (routeMatch) {
     const u = new URL(req.url, 'http://localhost');

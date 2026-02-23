@@ -33,10 +33,12 @@ const BAITY_HILL_STOPS_LAYER = 'baity-hill-stops-layer';
 const BUSES_SOURCE = 'buses-source';
 const USER_SOURCE = 'user-source';
 const JOURNEY_SOURCE = 'journey-source';
+const DESTINATION_SOURCE = 'destination-source';
 const BUSES_LAYER = 'buses-layer';
 const USER_LAYER = 'user-layer';
 const USER_HALO_LAYER = 'user-halo-layer';
 const JOURNEY_LAYER = 'journey-layer';
+const DESTINATION_LAYER = 'destination-layer';
 
 const ROUTE_COLORS = { P2P_EXPRESS: '#418FC5', BAITY_HILL: '#C33934' } as const;
 const BUS_SPEED_MPS = 6;
@@ -370,6 +372,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       map.addSource(BUSES_SOURCE, { type: 'geojson', data: emptyFC() });
       map.addSource(USER_SOURCE, { type: 'geojson', data: emptyFC() });
       map.addSource(JOURNEY_SOURCE, { type: 'geojson', data: emptyFC() });
+      map.addSource(DESTINATION_SOURCE, { type: 'geojson', data: emptyFC() });
 
       const BUS_ICON_EXPRESS_COLOR = '#1d4ed8';
       const BUS_ICON_BAITY_COLOR = '#e07c7c';
@@ -456,6 +459,17 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: { 'line-color': '#418FC5', 'line-width': 5, 'line-opacity': 0.8 },
       });
+      map.addLayer({
+        id: DESTINATION_LAYER,
+        type: 'circle',
+        source: DESTINATION_SOURCE,
+        paint: {
+          'circle-radius': 8,
+          'circle-color': '#EF4444',
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#fff',
+        },
+      });
 
       setMapReady(true);
     });
@@ -487,12 +501,40 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     const baityStops = map.getSource(BAITY_HILL_STOPS_SOURCE) as GeoJSONSource | undefined;
     const u = map.getSource(USER_SOURCE) as GeoJSONSource | undefined;
     const j = map.getSource(JOURNEY_SOURCE) as GeoJSONSource | undefined;
+    const d = map.getSource(DESTINATION_SOURCE) as GeoJSONSource | undefined;
     if (expressStops) expressStops.setData(routeStopsToGeoJSON(P2P_EXPRESS_STOPS, selectedStopId));
     if (baityStops) baityStops.setData(routeStopsToGeoJSON(BAITY_HILL_STOPS, selectedStopId));
     if (u) u.setData(userToGeoJSON(userLocation));
     if (j) j.setData(journeyToGeoJSON(activeJourney));
-    // Buses are updated by the animation tick (route-snapped positions)
+    if (d) {
+      if (activeJourney) {
+        const dest = activeJourney.destination;
+        d.setData({
+          type: 'FeatureCollection',
+          features: [
+            {
+              type: 'Feature' as const,
+              geometry: { type: 'Point' as const, coordinates: [dest.lon, dest.lat] },
+              properties: {},
+            },
+          ],
+        });
+      } else {
+        d.setData(emptyFC());
+      }
+    }
   }, [mapReady, selectedStopId, userLocation, activeJourney]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !activeJourney) return;
+    map.flyTo({
+      center: [activeJourney.destination.lon, activeJourney.destination.lat],
+      zoom: 15,
+      duration: 1200,
+      essential: true,
+    });
+  }, [mapReady, activeJourney]);
 
   // Fetch route polylines from server proxy (cached); store geometry for bus interpolation
   useEffect(() => {
