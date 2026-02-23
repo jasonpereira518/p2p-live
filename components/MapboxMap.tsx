@@ -400,7 +400,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
           source: BUSES_SOURCE,
           layout: {
             'icon-image': ['match', ['get', 'routeId'], 'p2p-express', 'bus-express', 'bus-baity'],
-            'icon-size': 0.05,
+            'icon-size': 0.035,
             'icon-rotate': ['get', 'bearing'],
             'icon-rotation-alignment': 'map',
             'icon-allow-overlap': true,
