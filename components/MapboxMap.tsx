@@ -1,12 +1,14 @@
 /**
  * Mapbox GL JS map (student map view). Replaces Leaflet.
  * Single init on mount; updates via source.setData. No globe mode.
+ * Route polylines from server proxy (/api/mapbox/route); stops from p2pStops.
  */
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import type { Map as MapboxMapType, GeoJSONSource } from 'mapbox-gl';
 import { Stop, Vehicle, Coordinate, Journey } from '../types';
+import { P2P_EXPRESS_STOPS, BAITY_HILL_STOPS } from '../data/p2pStops';
 import { Navigation } from 'lucide-react';
 
 type GeoJSONFC = { type: 'FeatureCollection'; features: Array<{ type: 'Feature'; geometry: { type: 'Point'; coordinates: number[] } | { type: 'LineString'; coordinates: [number, number][] }; properties: Record<string, unknown> }> };
@@ -16,28 +18,48 @@ const DEFAULT_ZOOM = 13;
 const USER_ZOOM = 16;
 const PITCH_3D = 60;
 
-const STOPS_SOURCE = 'stops-source';
+const P2P_EXPRESS_LINE_SOURCE = 'p2p-express-line-source';
+const BAITY_HILL_LINE_SOURCE = 'baity-hill-line-source';
+const P2P_EXPRESS_STOPS_SOURCE = 'p2p-express-stops-source';
+const BAITY_HILL_STOPS_SOURCE = 'baity-hill-stops-source';
+const P2P_EXPRESS_LINE_LAYER = 'p2p-express-line-layer';
+const BAITY_HILL_LINE_LAYER = 'baity-hill-line-layer';
+const P2P_EXPRESS_ARROWS_LAYER = 'p2p-express-arrows-layer';
+const BAITY_HILL_ARROWS_LAYER = 'baity-hill-arrows-layer';
+const P2P_EXPRESS_STOPS_LAYER = 'p2p-express-stops-layer';
+const BAITY_HILL_STOPS_LAYER = 'baity-hill-stops-layer';
 const BUSES_SOURCE = 'buses-source';
 const USER_SOURCE = 'user-source';
 const JOURNEY_SOURCE = 'journey-source';
-const STOPS_LAYER = 'stops-layer';
 const BUSES_LAYER = 'buses-layer';
 const USER_LAYER = 'user-layer';
 const USER_HALO_LAYER = 'user-halo-layer';
 const JOURNEY_LAYER = 'journey-layer';
 
+const ROUTE_COLORS = { P2P_EXPRESS: '#418FC5', BAITY_HILL: '#C33934' } as const;
+
 function emptyFC(): GeoJSONFC {
   return { type: 'FeatureCollection', features: [] };
 }
 
-function stopsToGeoJSON(stops: Stop[], selectedId: string | null): GeoJSONFC {
+function routeStopsToGeoJSON(
+  routeStops: { id: string; name: string; lat: number; lon: number }[],
+  selectedId: string | null
+): GeoJSONFC {
   return {
     type: 'FeatureCollection',
-    features: stops.map((s) => ({
+    features: routeStops.map((s) => ({
       type: 'Feature' as const,
       geometry: { type: 'Point' as const, coordinates: [s.lon, s.lat] },
       properties: { id: s.id, name: s.name, selected: s.id === selectedId },
     })),
+  };
+}
+
+function emptyLineGeoJSON(): { type: 'FeatureCollection'; features: Array<{ type: 'Feature'; geometry: { type: 'LineString'; coordinates: [number, number][] }; properties: object }> } {
+  return {
+    type: 'FeatureCollection',
+    features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} }],
   };
 }
 
@@ -102,6 +124,8 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   const mapRef = useRef<MapboxMapType | null>(null);
   const flownToUserRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
+  const [showExpress, setShowExpress] = useState(true);
+  const [showBaity, setShowBaity] = useState(true);
 
   const token = typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_MAPBOX_TOKEN;
 
@@ -130,7 +154,88 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
         /* style may not support */
       }
 
-      map.addSource(STOPS_SOURCE, { type: 'geojson', data: emptyFC() });
+      // Route lines (behind everything)
+      map.addSource(P2P_EXPRESS_LINE_SOURCE, { type: 'geojson', data: emptyLineGeoJSON() });
+      map.addSource(BAITY_HILL_LINE_SOURCE, { type: 'geojson', data: emptyLineGeoJSON() });
+      map.addLayer({
+        id: P2P_EXPRESS_LINE_LAYER,
+        type: 'line',
+        source: P2P_EXPRESS_LINE_SOURCE,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': ROUTE_COLORS.P2P_EXPRESS, 'line-width': 4, 'line-opacity': 0.9 },
+      });
+      map.addLayer({
+        id: BAITY_HILL_LINE_LAYER,
+        type: 'line',
+        source: BAITY_HILL_LINE_SOURCE,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': ROUTE_COLORS.BAITY_HILL, 'line-width': 4, 'line-opacity': 0.9 },
+      });
+
+      // Direction arrows along routes (need image first)
+      const arrowUrl = '/icons/arrow.svg';
+      map.loadImage(arrowUrl, (err, img) => {
+        if (!err && img) {
+          map.addImage('route-arrow', img, { sdf: false });
+          map.addLayer({
+            id: P2P_EXPRESS_ARROWS_LAYER,
+            type: 'symbol',
+            source: P2P_EXPRESS_LINE_SOURCE,
+            layout: {
+              'symbol-placement': 'line',
+              'symbol-spacing': 80,
+              'icon-image': 'route-arrow',
+              'icon-size': 0.5,
+              'icon-allow-overlap': false,
+              'icon-ignore-placement': true,
+              'icon-rotation-alignment': 'map',
+            },
+            paint: { 'icon-color': ROUTE_COLORS.P2P_EXPRESS },
+          });
+          map.addLayer({
+            id: BAITY_HILL_ARROWS_LAYER,
+            type: 'symbol',
+            source: BAITY_HILL_LINE_SOURCE,
+            layout: {
+              'symbol-placement': 'line',
+              'symbol-spacing': 80,
+              'icon-image': 'route-arrow',
+              'icon-size': 0.5,
+              'icon-allow-overlap': false,
+              'icon-ignore-placement': true,
+              'icon-rotation-alignment': 'map',
+            },
+            paint: { 'icon-color': ROUTE_COLORS.BAITY_HILL },
+          });
+        }
+      });
+
+      // Per-route stop circles
+      map.addSource(P2P_EXPRESS_STOPS_SOURCE, { type: 'geojson', data: emptyFC() });
+      map.addSource(BAITY_HILL_STOPS_SOURCE, { type: 'geojson', data: emptyFC() });
+      map.addLayer({
+        id: P2P_EXPRESS_STOPS_LAYER,
+        type: 'circle',
+        source: P2P_EXPRESS_STOPS_SOURCE,
+        paint: {
+          'circle-radius': ['case', ['get', 'selected'], 9, 7],
+          'circle-color': ['case', ['get', 'selected'], ROUTE_COLORS.P2P_EXPRESS, '#fff'],
+          'circle-stroke-width': ['case', ['get', 'selected'], 3, 2],
+          'circle-stroke-color': ['case', ['get', 'selected'], '#fff', '#64748b'],
+        },
+      });
+      map.addLayer({
+        id: BAITY_HILL_STOPS_LAYER,
+        type: 'circle',
+        source: BAITY_HILL_STOPS_SOURCE,
+        paint: {
+          'circle-radius': ['case', ['get', 'selected'], 9, 7],
+          'circle-color': ['case', ['get', 'selected'], ROUTE_COLORS.BAITY_HILL, '#fff'],
+          'circle-stroke-width': ['case', ['get', 'selected'], 3, 2],
+          'circle-stroke-color': ['case', ['get', 'selected'], '#fff', '#64748b'],
+        },
+      });
+
       map.addSource(BUSES_SOURCE, { type: 'geojson', data: emptyFC() });
       map.addSource(USER_SOURCE, { type: 'geojson', data: emptyFC() });
       map.addSource(JOURNEY_SOURCE, { type: 'geojson', data: emptyFC() });
@@ -150,17 +255,6 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
           'circle-color': '#4285F4',
           'circle-stroke-width': 2,
           'circle-stroke-color': '#fff',
-        },
-      });
-      map.addLayer({
-        id: STOPS_LAYER,
-        type: 'circle',
-        source: STOPS_SOURCE,
-        paint: {
-          'circle-radius': ['case', ['get', 'selected'], 9, 7],
-          'circle-color': ['case', ['get', 'selected'], '#418FC5', '#fff'],
-          'circle-stroke-width': ['case', ['get', 'selected'], 3, 2],
-          'circle-stroke-color': ['case', ['get', 'selected'], '#fff', '#64748b'],
         },
       });
       map.addLayer({
@@ -208,15 +302,40 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
-    const s = map.getSource(STOPS_SOURCE) as GeoJSONSource | undefined;
+    const expressStops = map.getSource(P2P_EXPRESS_STOPS_SOURCE) as GeoJSONSource | undefined;
+    const baityStops = map.getSource(BAITY_HILL_STOPS_SOURCE) as GeoJSONSource | undefined;
     const b = map.getSource(BUSES_SOURCE) as GeoJSONSource | undefined;
     const u = map.getSource(USER_SOURCE) as GeoJSONSource | undefined;
     const j = map.getSource(JOURNEY_SOURCE) as GeoJSONSource | undefined;
-    if (s) s.setData(stopsToGeoJSON(stops, selectedStopId));
+    if (expressStops) expressStops.setData(routeStopsToGeoJSON(P2P_EXPRESS_STOPS, selectedStopId));
+    if (baityStops) baityStops.setData(routeStopsToGeoJSON(BAITY_HILL_STOPS, selectedStopId));
     if (b) b.setData(vehiclesToGeoJSON(vehicles));
     if (u) u.setData(userToGeoJSON(userLocation));
     if (j) j.setData(journeyToGeoJSON(activeJourney));
-  }, [mapReady, stops, vehicles, userLocation, selectedStopId, activeJourney]);
+  }, [mapReady, selectedStopId, vehicles, userLocation, activeJourney]);
+
+  // Fetch route polylines from server proxy (cached)
+  useEffect(() => {
+    if (!mapReady || !mapRef.current) return;
+    const map = mapRef.current;
+    const base = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_OPS_API_URL) || '';
+    (['P2P_EXPRESS', 'BAITY_HILL'] as const).forEach((routeId) => {
+      fetch(`${base}/api/mapbox/route?routeId=${routeId}`)
+        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(res.statusText))))
+        .then((data: { geometry?: { type: string; coordinates: [number, number][] }; routeId: string }) => {
+          if (!data.geometry || !data.geometry.coordinates.length) return;
+          const sourceId = routeId === 'P2P_EXPRESS' ? P2P_EXPRESS_LINE_SOURCE : BAITY_HILL_LINE_SOURCE;
+          const src = map.getSource(sourceId) as GeoJSONSource | undefined;
+          if (src) {
+            src.setData({
+              type: 'FeatureCollection',
+              features: [{ type: 'Feature', geometry: data.geometry, properties: {} }],
+            });
+          }
+        })
+        .catch((err) => console.warn('Route fetch failed', routeId, err));
+    });
+  }, [mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -281,21 +400,47 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       }
     };
     map.on('click', BUSES_LAYER, onBus);
-    map.on('click', STOPS_LAYER, onStop);
+    map.on('click', P2P_EXPRESS_STOPS_LAYER, onStop);
+    map.on('click', BAITY_HILL_STOPS_LAYER, onStop);
     map.getCanvas().style.cursor = 'default';
     map.on('mouseenter', BUSES_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', BUSES_LAYER, () => { map.getCanvas().style.cursor = 'default'; });
-    map.on('mouseenter', STOPS_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', STOPS_LAYER, () => { map.getCanvas().style.cursor = 'default'; });
+    map.on('mouseenter', P2P_EXPRESS_STOPS_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', P2P_EXPRESS_STOPS_LAYER, () => { map.getCanvas().style.cursor = 'default'; });
+    map.on('mouseenter', BAITY_HILL_STOPS_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', BAITY_HILL_STOPS_LAYER, () => { map.getCanvas().style.cursor = 'default'; });
     return () => {
       map.off('click', BUSES_LAYER, onBus);
-      map.off('click', STOPS_LAYER, onStop);
+      map.off('click', P2P_EXPRESS_STOPS_LAYER, onStop);
+      map.off('click', BAITY_HILL_STOPS_LAYER, onStop);
       map.off('mouseenter', BUSES_LAYER);
       map.off('mouseleave', BUSES_LAYER);
-      map.off('mouseenter', STOPS_LAYER);
-      map.off('mouseleave', STOPS_LAYER);
+      map.off('mouseenter', P2P_EXPRESS_STOPS_LAYER);
+      map.off('mouseleave', P2P_EXPRESS_STOPS_LAYER);
+      map.off('mouseenter', BAITY_HILL_STOPS_LAYER);
+      map.off('mouseleave', BAITY_HILL_STOPS_LAYER);
     };
   }, [mapReady, stops, vehicles, onSelectBus, onSelectStop]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const v = (visible: boolean) => (visible ? 'visible' : 'none');
+    [P2P_EXPRESS_LINE_LAYER, P2P_EXPRESS_ARROWS_LAYER, P2P_EXPRESS_STOPS_LAYER].forEach((id) => {
+      try {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', v(showExpress));
+      } catch {
+        /* layer may not exist yet (arrows load async) */
+      }
+    });
+    [BAITY_HILL_LINE_LAYER, BAITY_HILL_ARROWS_LAYER, BAITY_HILL_STOPS_LAYER].forEach((id) => {
+      try {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', v(showBaity));
+      } catch {
+        /* layer may not exist yet */
+      }
+    });
+  }, [mapReady, showExpress, showBaity]);
 
   const recenter = useCallback(() => {
     const map = mapRef.current;
@@ -316,9 +461,31 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     );
   }
 
+  const isDev = typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV;
+
   return (
     <div className={`relative w-full h-full ${className}`}>
       <div ref={containerRef} className="absolute inset-0 w-full h-full" />
+      {isDev && mapReady && (
+        <div className="absolute top-2 left-2 z-10 flex gap-2 items-center bg-white/95 rounded-lg shadow border border-gray-200 p-2 text-sm">
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showExpress}
+              onChange={(e) => setShowExpress(e.target.checked)}
+            />
+            <span style={{ color: ROUTE_COLORS.P2P_EXPRESS }}>P2P Express</span>
+          </label>
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showBaity}
+              onChange={(e) => setShowBaity(e.target.checked)}
+            />
+            <span style={{ color: ROUTE_COLORS.BAITY_HILL }}>Baity Hill</span>
+          </label>
+        </div>
+      )}
       {userLocation && (
         <button
           type="button"

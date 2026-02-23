@@ -1,19 +1,10 @@
-import { Route, Stop, Vehicle, Destination } from '../types';
+import { Route, Vehicle, Destination } from '../types';
+import { STOPS } from './p2pStops';
 
+export { STOPS };
 export const ROUTES: Route[] = [
   { id: 'p2p-express', name: 'P2P Express', color: '#418FC5' },
   { id: 'baity-hill', name: 'Baity Hill', color: '#C33934' },
-];
-
-export const STOPS: Stop[] = [
-  { id: 'student-union', name: 'Student Union', lat: 35.9105, lon: -79.0478 },
-  { id: 'kenan-stadium', name: 'Kenan Stadium', lat: 35.9069, lon: -79.0479 },
-  { id: 'dean-dome', name: 'Dean Smith Center', lat: 35.8999, lon: -79.0438 },
-  { id: 'franklin-st', name: 'Franklin St (Target)', lat: 35.9132, lon: -79.0558 },
-  { id: 'baity-hill-apts', name: 'Baity Hill Apts', lat: 35.8970, lon: -79.0400 },
-  { id: 'south-campus', name: 'South Campus Dorms', lat: 35.9035, lon: -79.0450 },
-  { id: 'davis-lib', name: 'Davis Library', lat: 35.9088, lon: -79.0470 },
-  { id: 'morrison', name: 'Morrison Residence Hall', lat: 35.9045, lon: -79.0465 },
 ];
 
 export const VEHICLES: Vehicle[] = [
@@ -24,12 +15,12 @@ export const VEHICLES: Vehicle[] = [
     lat: 35.9110,
     lon: -79.0485,
     heading: 90,
-    nextStopId: 'student-union',
+    nextStopId: 'p2p-express-9',
     nextStopEtaMin: 2,
     upcomingStops: [
-      { stopId: 'student-union', etaMin: 2 },
-      { stopId: 'davis-lib', etaMin: 5 },
-      { stopId: 'franklin-st', etaMin: 12 },
+      { stopId: 'p2p-express-9', etaMin: 2 },
+      { stopId: 'p2p-express-10', etaMin: 5 },
+      { stopId: 'p2p-express-15', etaMin: 12 },
     ]
   },
   {
@@ -39,12 +30,12 @@ export const VEHICLES: Vehicle[] = [
     lat: 35.9010,
     lon: -79.0420,
     heading: 180,
-    nextStopId: 'dean-dome',
+    nextStopId: 'baity-hill-1',
     nextStopEtaMin: 1,
     upcomingStops: [
-      { stopId: 'dean-dome', etaMin: 1 },
-      { stopId: 'baity-hill-apts', etaMin: 4 },
-      { stopId: 'south-campus', etaMin: 9 },
+      { stopId: 'baity-hill-1', etaMin: 1 },
+      { stopId: 'baity-hill-2', etaMin: 4 },
+      { stopId: 'baity-hill-5', etaMin: 9 },
     ]
   },
   {
@@ -54,12 +45,12 @@ export const VEHICLES: Vehicle[] = [
     lat: 35.9040,
     lon: -79.0460,
     heading: 0,
-    nextStopId: 'morrison',
+    nextStopId: 'p2p-express-6',
     nextStopEtaMin: 3,
     upcomingStops: [
-      { stopId: 'morrison', etaMin: 3 },
-      { stopId: 'kenan-stadium', etaMin: 6 },
-      { stopId: 'student-union', etaMin: 10 },
+      { stopId: 'p2p-express-6', etaMin: 3 },
+      { stopId: 'p2p-express-20', etaMin: 6 },
+      { stopId: 'p2p-express-9', etaMin: 10 },
     ]
   }
 ];
