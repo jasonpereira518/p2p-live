@@ -43,6 +43,19 @@ export interface Destination {
 
 export type SegmentType = 'walk' | 'bus';
 
+/** One step from Mapbox walking directions (maneuver). */
+export interface WalkingStep {
+  instruction: string;
+  distanceMeters: number;
+  durationSec: number;
+}
+
+/** GeoJSON LineString for segment geometry on map. */
+export interface LineStringGeometry {
+  type: 'LineString';
+  coordinates: [number, number][];
+}
+
 export interface JourneySegment {
   type: SegmentType;
   fromName: string;
@@ -52,11 +65,17 @@ export interface JourneySegment {
   durationMin: number;
   distanceMeters: number;
   instruction: string;
-  // Bus specific
+  // Walk: Mapbox geometry + steps
+  geometry?: LineStringGeometry;
+  steps?: WalkingStep[];
+  // Bus: sliced route geometry + ordered stops board → alight
   routeId?: string;
   routeName?: string;
   stopsCount?: number;
   waitTimeMin?: number;
+  busSegmentGeometry?: LineStringGeometry;
+  /** Stop ids in order from board to alight (including board and alight). */
+  busOrderedStopIds?: string[];
 }
 
 export interface Journey {

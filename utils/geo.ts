@@ -44,3 +44,23 @@ export const findNearestStop = (userLocation: Coordinate, stops: Stop[]): Stop |
 
   return nearest;
 };
+
+/** Stop with distance for K-nearest. */
+export interface StopWithDistance {
+  stop: Stop;
+  distanceMeters: number;
+}
+
+/** Return K nearest stops to point, sorted by distance ascending. */
+export function findKNearestStops(
+  point: Coordinate,
+  stops: Stop[],
+  k: number
+): StopWithDistance[] {
+  const withDist: StopWithDistance[] = stops.map((stop) => ({
+    stop,
+    distanceMeters: getDistanceMeters(point, stop),
+  }));
+  withDist.sort((a, b) => a.distanceMeters - b.distanceMeters);
+  return withDist.slice(0, k);
+}

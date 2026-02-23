@@ -6,7 +6,7 @@
 
 export type LngLat = [number, number];
 
-function haversineMeters(a: LngLat, b: LngLat): number {
+export function haversineMeters(a: LngLat, b: LngLat): number {
   const R = 6371000;
   const dLat = ((b[1] - a[1]) * Math.PI) / 180;
   const dLon = ((b[0] - a[0]) * Math.PI) / 180;
@@ -94,4 +94,76 @@ export function createRouteInterpolator(coords: LngLat[]): RouteInterpolator | n
       return bearing(c[i], c[i + 1]);
     },
   };
+}
+
+/** Project point onto route polyline; returns distance along route (0..totalLength) and nearest point. */
+export function projectPointToRoute(
+  coords: LngLat[],
+  point: LngLat
+): { distanceAlong: number; nearestPoint: LngLat } {
+  if (!coords.length) return { distanceAlong: 0, nearestPoint: point };
+  if (coords.length === 1) return { distanceAlong: 0, nearestPoint: coords[0] };
+  const cumul = cumulativeDistances(coords);
+  const total = cumul[cumul.length - 1];
+  let bestDist = Infinity;
+  let bestT = 0;
+  let bestSeg = 0;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const a = coords[i];
+    const b = coords[i + 1];
+    const ax = a[0] - point[0];
+    const ay = a[1] - point[1];
+    const bx = b[0] - a[0];
+    const by = b[1] - a[1];
+    const denom = bx * bx + by * by || 1;
+    let t = Math.max(0, Math.min(1, -(ax * bx + ay * by) / denom));
+    const px = a[0] + t * bx;
+    const py = a[1] + t * by;
+    const dSq = (point[0] - px) ** 2 + (point[1] - py) ** 2;
+    if (dSq < bestDist) {
+      bestDist = dSq;
+      bestT = t;
+      bestSeg = i;
+    }
+  }
+  const distanceAlong = cumul[bestSeg] + bestT * (cumul[bestSeg + 1] - cumul[bestSeg]);
+  const nearestPoint: LngLat = [
+    coords[bestSeg][0] + bestT * (coords[bestSeg + 1][0] - coords[bestSeg][0]),
+    coords[bestSeg][1] + bestT * (coords[bestSeg + 1][1] - coords[bestSeg][1]),
+  ];
+  return { distanceAlong: Math.max(0, Math.min(total, distanceAlong)), nearestPoint };
+}
+
+/** Slice route polyline from distance dStart to dEnd (meters). Wraps if dEnd < dStart. */
+export function sliceRouteByDistance(
+  coords: LngLat[],
+  dStart: number,
+  dEnd: number
+): LngLat[] {
+  if (!coords.length || coords.length < 2) return [];
+  const cumul = cumulativeDistances(coords);
+  const total = cumul[cumul.length - 1];
+  if (total <= 0) return [];
+  let start = ((dStart % total) + total) % total;
+  let end = ((dEnd % total) + total) % total;
+  const interp = createRouteInterpolator(coords);
+  if (!interp) return [];
+  const out: LngLat[] = [];
+  if (end >= start) {
+    const numPoints = Math.max(2, Math.ceil((end - start) / 20));
+    for (let i = 0; i <= numPoints; i++) {
+      const d = start + (i / numPoints) * (end - start);
+      out.push(interp.pointAt(d));
+    }
+  } else {
+    const num1 = Math.max(2, Math.ceil((total - start) / 20));
+    for (let i = 0; i <= num1; i++) {
+      out.push(interp.pointAt(start + (i / num1) * (total - start)));
+    }
+    const num2 = Math.max(2, Math.ceil(end / 20));
+    for (let i = 1; i <= num2; i++) {
+      out.push(interp.pointAt((i / num2) * end));
+    }
+  }
+  return out;
 }

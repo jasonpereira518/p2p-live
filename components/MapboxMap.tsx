@@ -33,11 +33,13 @@ const BAITY_HILL_STOPS_LAYER = 'baity-hill-stops-layer';
 const BUSES_SOURCE = 'buses-source';
 const USER_SOURCE = 'user-source';
 const JOURNEY_SOURCE = 'journey-source';
+const JOURNEY_STOPS_SOURCE = 'journey-stops-source';
 const DESTINATION_SOURCE = 'destination-source';
 const BUSES_LAYER = 'buses-layer';
 const USER_LAYER = 'user-layer';
 const USER_HALO_LAYER = 'user-halo-layer';
 const JOURNEY_LAYER = 'journey-layer';
+const JOURNEY_STOPS_LAYER = 'journey-stops-layer';
 const DESTINATION_LAYER = 'destination-layer';
 
 const ROUTE_COLORS = { P2P_EXPRESS: '#418FC5', BAITY_HILL: '#C33934' } as const;
@@ -180,15 +182,39 @@ function userToGeoJSON(c: Coordinate | null): GeoJSONFC {
 
 function journeyToGeoJSON(j: Journey | null): GeoJSONFC {
   if (!j || !j.segments.length) return emptyFC();
-  const coords: [number, number][] = [];
+  const features: GeoJSONFC['features'] = [];
   j.segments.forEach((seg) => {
-    if (!coords.length) coords.push([seg.fromCoords.lon, seg.fromCoords.lat]);
-    coords.push([seg.toCoords.lon, seg.toCoords.lat]);
+    const geom = seg.type === 'walk' ? seg.geometry : seg.busSegmentGeometry;
+    const coords: [number, number][] = geom?.coordinates?.length
+      ? geom.coordinates
+      : [[seg.fromCoords.lon, seg.fromCoords.lat], [seg.toCoords.lon, seg.toCoords.lat]];
+    features.push({
+      type: 'Feature' as const,
+      geometry: { type: 'LineString' as const, coordinates: coords },
+      properties: { segmentType: seg.type },
+    });
   });
-  return {
-    type: 'FeatureCollection',
-    features: [{ type: 'Feature' as const, geometry: { type: 'LineString' as const, coordinates: coords }, properties: {} }],
-  };
+  return { type: 'FeatureCollection', features };
+}
+
+function journeyStopsToGeoJSON(j: Journey | null): GeoJSONFC {
+  if (!j) return emptyFC();
+  const features: Array<{ type: 'Feature'; geometry: { type: 'Point'; coordinates: number[] }; properties: Record<string, unknown> }> = [];
+  j.segments.forEach((seg) => {
+    if (seg.type === 'bus') {
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [seg.fromCoords.lon, seg.fromCoords.lat] },
+        properties: { stopType: 'board', name: seg.fromName },
+      });
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [seg.toCoords.lon, seg.toCoords.lat] },
+        properties: { stopType: 'alight', name: seg.toName },
+      });
+    }
+  });
+  return { type: 'FeatureCollection', features };
 }
 
 export interface MapboxMapProps {
@@ -373,6 +399,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       map.addSource(BUSES_SOURCE, { type: 'geojson', data: emptyFC() });
       map.addSource(USER_SOURCE, { type: 'geojson', data: emptyFC() });
       map.addSource(JOURNEY_SOURCE, { type: 'geojson', data: emptyFC() });
+      map.addSource(JOURNEY_STOPS_SOURCE, { type: 'geojson', data: emptyFC() });
       map.addSource(DESTINATION_SOURCE, { type: 'geojson', data: emptyFC() });
 
       const BUS_ICON_EXPRESS_COLOR = '#1d4ed8';
@@ -400,7 +427,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
           source: BUSES_SOURCE,
           layout: {
             'icon-image': ['match', ['get', 'routeId'], 'p2p-express', 'bus-express', 'bus-baity'],
-            'icon-size': 0.035,
+            'icon-size': 0.03,
             'icon-rotate': ['get', 'bearing'],
             'icon-rotation-alignment': 'map',
             'icon-allow-overlap': true,
@@ -478,7 +505,23 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
         type: 'line',
         source: JOURNEY_SOURCE,
         layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': '#418FC5', 'line-width': 5, 'line-opacity': 0.8 },
+        paint: {
+          'line-color': '#000',
+          'line-width': 5,
+          'line-opacity': 0.9,
+          'line-dasharray': ['case', ['==', ['get', 'segmentType'], 'walk'], ['literal', [2, 2]], ['literal', []]],
+        },
+      });
+      map.addLayer({
+        id: JOURNEY_STOPS_LAYER,
+        type: 'circle',
+        source: JOURNEY_STOPS_SOURCE,
+        paint: {
+          'circle-radius': ['case', ['==', ['get', 'stopType'], 'board'], 8, 8],
+          'circle-color': ['case', ['==', ['get', 'stopType'], 'board'], '#418FC5', '#C33934'],
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#fff',
+        },
       });
       map.addLayer({
         id: DESTINATION_LAYER,
@@ -522,11 +565,13 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     const baityStops = map.getSource(BAITY_HILL_STOPS_SOURCE) as GeoJSONSource | undefined;
     const u = map.getSource(USER_SOURCE) as GeoJSONSource | undefined;
     const j = map.getSource(JOURNEY_SOURCE) as GeoJSONSource | undefined;
+    const jStops = map.getSource(JOURNEY_STOPS_SOURCE) as GeoJSONSource | undefined;
     const d = map.getSource(DESTINATION_SOURCE) as GeoJSONSource | undefined;
     if (expressStops) expressStops.setData(routeStopsToGeoJSON(P2P_EXPRESS_STOPS, selectedStopId));
     if (baityStops) baityStops.setData(routeStopsToGeoJSON(BAITY_HILL_STOPS, selectedStopId));
     if (u) u.setData(userToGeoJSON(userLocation));
     if (j) j.setData(journeyToGeoJSON(activeJourney));
+    if (jStops) jStops.setData(journeyStopsToGeoJSON(activeJourney));
     if (d) {
       if (activeJourney) {
         const dest = activeJourney.destination;

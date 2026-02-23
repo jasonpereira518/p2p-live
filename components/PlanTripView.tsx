@@ -5,7 +5,9 @@ import { MOCK_DESTINATIONS } from '../data/mockTransit';
 import { POPULAR_LOCATIONS } from '../data/popularLocations';
 import { TOP_LOCATIONS, topLocationToDestination } from '../data/topLocations';
 import { getRecentSearches, addRecentSearch, clearRecentSearches, type RecentSearchItem } from '../storage/recentSearches';
-import { calculateJourney } from '../utils/journey';
+import { computeMultimodalRoute } from '../utils/multimodalRouting';
+import { formatDuration, formatDistanceImperial, formatETA } from '../utils/format';
+import { ROUTE_CONFIGS } from '../data/routeConfig';
 
 const TOP_DESTINATIONS: Destination[] = TOP_LOCATIONS.map(topLocationToDestination);
 
@@ -39,9 +41,16 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
   const [searchFocused, setSearchFocused] = useState(false);
   const [recentSearches, setRecentSearches] = useState<RecentSearchItem[]>(() => getRecentSearches());
   const [journey, setJourney] = useState<Journey | null>(existingJourney);
+  const [routingLoading, setRoutingLoading] = useState(false);
   const [addressResults, setAddressResults] = useState<GeocodeResult[]>([]);
   const [geocodeLoading, setGeocodeLoading] = useState(false);
   const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const stopNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    ROUTE_CONFIGS.forEach((r) => r.stops.forEach((s) => m.set(s.id, s.name)));
+    return m;
+  }, []);
 
   useEffect(() => () => { if (blurTimerRef.current) clearTimeout(blurTimerRef.current); }, []);
 
@@ -91,20 +100,29 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
     setRecentSearches(getRecentSearches());
   }, []);
 
-  const handleSelectDestination = useCallback((dest: Destination) => {
-    setQuery(dest.name);
-    setSearchFocused(false);
-    addRecentSearch({ label: dest.name, lat: dest.lat, lon: dest.lon });
-    refreshRecent();
-    try {
-      const newJourney = calculateJourney(userLocation, dest);
-      setJourney(newJourney);
-      onPlanRoute(newJourney);
-    } catch (e) {
-      console.error(e);
-      alert('Could not calculate route');
-    }
-  }, [userLocation, onPlanRoute, refreshRecent]);
+  const handleSelectDestination = useCallback(
+    async (dest: Destination) => {
+      setQuery(dest.name);
+      setSearchFocused(false);
+      addRecentSearch({ label: dest.name, lat: dest.lat, lon: dest.lon });
+      refreshRecent();
+      setRoutingLoading(true);
+      try {
+        const newJourney = await computeMultimodalRoute({
+          origin: userLocation,
+          destination: dest,
+        });
+        setJourney(newJourney);
+        onPlanRoute(newJourney);
+      } catch (e) {
+        console.error(e);
+        alert('Could not calculate route');
+      } finally {
+        setRoutingLoading(false);
+      }
+    },
+    [userLocation, onPlanRoute, refreshRecent]
+  );
 
   const handleSelectAddressResult = useCallback(
     (item: GeocodeResult) => {
@@ -121,23 +139,38 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
     [handleSelectDestination]
   );
 
-  const handleSelectRecent = useCallback((item: RecentSearchItem) => {
-    const dest: Destination = item.lat != null && item.lon != null
-      ? { id: `recent-${item.label}`, name: item.label, lat: item.lat, lon: item.lon }
-      : ALL_DESTINATIONS.find(d => d.name.toLowerCase() === item.label.toLowerCase()) ?? { id: `recent-${item.label}`, name: item.label, lat: 35.91, lon: -79.05 };
-    setQuery(dest.name);
-    setSearchFocused(false);
-    addRecentSearch({ label: dest.name, lat: dest.lat, lon: dest.lon });
-    refreshRecent();
-    try {
-      const newJourney = calculateJourney(userLocation, dest);
-      setJourney(newJourney);
-      onPlanRoute(newJourney);
-    } catch (e) {
-      console.error(e);
-      alert('Could not calculate route');
-    }
-  }, [userLocation, onPlanRoute, refreshRecent]);
+  const handleSelectRecent = useCallback(
+    async (item: RecentSearchItem) => {
+      const dest: Destination =
+        item.lat != null && item.lon != null
+          ? { id: `recent-${item.label}`, name: item.label, lat: item.lat, lon: item.lon }
+          : ALL_DESTINATIONS.find((d) => d.name.toLowerCase() === item.label.toLowerCase()) ?? {
+              id: `recent-${item.label}`,
+              name: item.label,
+              lat: 35.91,
+              lon: -79.05,
+            };
+      setQuery(dest.name);
+      setSearchFocused(false);
+      addRecentSearch({ label: dest.name, lat: dest.lat, lon: dest.lon });
+      refreshRecent();
+      setRoutingLoading(true);
+      try {
+        const newJourney = await computeMultimodalRoute({
+          origin: userLocation,
+          destination: dest,
+        });
+        setJourney(newJourney);
+        onPlanRoute(newJourney);
+      } catch (e) {
+        console.error(e);
+        alert('Could not calculate route');
+      } finally {
+        setRoutingLoading(false);
+      }
+    },
+    [userLocation, onPlanRoute, refreshRecent]
+  );
 
   const handleClearRecent = useCallback(() => {
     clearRecentSearches();
@@ -150,25 +183,53 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
     onPlanRoute(null as any); // Clear journey in parent
   };
 
+  if (routingLoading) {
+    return (
+      <div className="flex flex-col h-full bg-gray-50 items-center justify-center p-8">
+        <div className="w-12 h-12 border-4 border-p2p-blue border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-gray-600 font-medium">Finding best route…</p>
+        <p className="text-sm text-gray-400 mt-1">Walk and bus options with Mapbox</p>
+      </div>
+    );
+  }
+
   // Render Result View
   if (journey) {
+    const totalDurationSeconds = journey.totalDurationMin * 60;
     return (
       <div className="flex flex-col h-full bg-gray-50 overflow-hidden">
         {/* Journey Summary Header */}
         <div className="bg-white p-5 border-b border-gray-100 shadow-sm shrink-0">
             <h2 className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Total Time</h2>
-            <div className="flex items-baseline gap-2 mb-3">
-              <span className="text-3xl font-black text-gray-900">{journey.totalDurationMin}</span>
-              <span className="text-xl font-medium text-gray-500">min</span>
+            <div className="flex items-baseline gap-2 mb-1">
+              <span className="text-3xl font-black text-gray-900">
+                {formatDuration(totalDurationSeconds)}
+              </span>
             </div>
-            
+            <div className="text-sm text-gray-600 mb-2">
+              <span className="font-semibold">ETA:</span>{' '}
+              <span>{formatETA(totalDurationSeconds)}</span>
+            </div>
+            <div className="text-xs text-gray-500 mb-4">
+              {journey.segments.length === 1 ? (
+                <>Walk: {formatDuration(journey.segments[0].durationMin * 60)}</>
+              ) : (
+                <>
+                  Walk to Stop: {formatDuration((journey.segments[0]?.durationMin ?? 0) * 60)}
+                  {' • '}
+                  Ride {journey.segments[1]?.routeName}: {formatDuration((journey.segments[1]?.durationMin ?? 0) * 60)}
+                  {' • '}
+                  Walk to Destination: {formatDuration((journey.segments[2]?.durationMin ?? 0) * 60)}
+                </>
+              )}
+            </div>
             <div className="flex flex-wrap gap-2 mb-4">
                {journey.segments.map((seg, i) => (
                  <div key={i} className={`flex items-center text-xs font-bold px-2 py-1 rounded-md border ${
                    seg.type === 'walk' ? 'bg-gray-100 text-gray-600 border-gray-200' : 'bg-p2p-blue/10 text-p2p-blue border-p2p-blue/20'
                  }`}>
                    {seg.type === 'walk' ? <User size={12} className="mr-1"/> : <Bus size={12} className="mr-1"/>}
-                   {seg.durationMin} min
+                   {formatDuration(seg.durationMin * 60)}
                  </div>
                ))}
             </div>
@@ -210,7 +271,9 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
                 <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
                    <div className="flex justify-between items-start mb-2">
                      <h3 className="font-bold text-gray-900">{seg.instruction}</h3>
-                     <span className="text-sm font-semibold text-gray-500 whitespace-nowrap">{seg.durationMin} min</span>
+                     <span className="text-sm font-semibold text-gray-500 whitespace-nowrap">
+                       {formatDuration(seg.durationMin * 60)}
+                     </span>
                    </div>
                    
                    {seg.type === 'bus' && (
@@ -219,18 +282,43 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
                           {seg.routeName}
                         </div>
                         <div className="text-sm text-gray-600 space-y-1">
-                          <div className="flex items-center"><div className="w-1.5 h-1.5 rounded-full bg-gray-300 mr-2"/> Board at {seg.fromName}</div>
-                          <div className="flex items-center"><div className="w-1.5 h-1.5 rounded-full bg-gray-300 mr-2"/> Get off at {seg.toName}</div>
-                          <div className="text-xs text-gray-400 mt-1 pl-3.5">{seg.stopsCount} stops • Arrives in {seg.waitTimeMin} min</div>
+                          {seg.busOrderedStopIds && seg.busOrderedStopIds.length > 0 ? (
+                            <>
+                              <div className="font-medium text-gray-700">Board at {seg.fromName}</div>
+                              {seg.busOrderedStopIds.slice(1, -1).map((id) => (
+                                <div key={id} className="flex items-center pl-3 border-l-2 border-gray-200 ml-1">
+                                  <span className="text-gray-500">{stopNameById.get(id) ?? id}</span>
+                                </div>
+                              ))}
+                              <div className="font-medium text-gray-700">Get off at {seg.toName}</div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="flex items-center"><div className="w-1.5 h-1.5 rounded-full bg-gray-300 mr-2"/> Board at {seg.fromName}</div>
+                              <div className="flex items-center"><div className="w-1.5 h-1.5 rounded-full bg-gray-300 mr-2"/> Get off at {seg.toName}</div>
+                            </>
+                          )}
+                          {seg.stopsCount != null && (
+                            <div className="text-xs text-gray-400 mt-1 pl-3.5">{seg.stopsCount} stops</div>
+                          )}
                         </div>
                      </div>
                    )}
 
-                   {seg.type === 'walk' && (
-                     <div className="text-sm text-gray-500">
-                       Walk {Math.round(seg.distanceMeters)} meters
-                     </div>
-                   )}
+                  {seg.type === 'walk' && (
+                    <div className="space-y-1">
+                      <div className="text-sm text-gray-500">
+                        Walk {formatDistanceImperial(seg.distanceMeters)}
+                      </div>
+                      {seg.steps && seg.steps.length > 0 && (
+                        <ul className="mt-2 space-y-1 text-xs text-gray-500 border-l-2 border-gray-200 pl-3">
+                          {seg.steps.map((step, i) => (
+                            <li key={i}>{step.instruction}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
                 </div>
              </div>
            ))}

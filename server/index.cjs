@@ -15,8 +15,20 @@ const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN;
 const CACHE_TTL_MS = 60 * 1000; // 60 seconds
 const ROUTE_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const WALK_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 let routeCache = Object.create(null);
+let walkCache = Object.create(null);
+
+function roundCoord(c, decimals = 5) {
+  return [Number(c[0].toFixed(decimals)), Number(c[1].toFixed(decimals))];
+}
+
+function walkCacheKey(from, to) {
+  const a = roundCoord(from);
+  const b = roundCoord(to);
+  return `${a[0]},${a[1]}-${b[0]},${b[1]}`;
+}
 
 function loadRouteWaypoints() {
   const p = path.join(__dirname, 'routeWaypoints.json');
@@ -92,6 +104,48 @@ async function handleMapboxRoute(routeId, res) {
     console.error('Mapbox route error:', err.message);
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: err.message, routeId }));
+  }
+}
+
+async function fetchMapboxWalking(fromLngLat, toLngLat) {
+  if (!MAPBOX_TOKEN) throw new Error('MAPBOX_TOKEN is not set');
+  const coords = `${fromLngLat[0]},${fromLngLat[1]};${toLngLat[0]},${toLngLat[1]}`;
+  const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${coords}?geometries=geojson&overview=full&steps=true&access_token=${encodeURIComponent(MAPBOX_TOKEN)}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Mapbox Directions ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  const route = data.routes && data.routes[0];
+  if (!route || !route.geometry || !route.geometry.coordinates) throw new Error('Invalid Mapbox walking response');
+  const steps = (route.legs && route.legs[0] && route.legs[0].steps) ? route.legs[0].steps.map((s) => ({
+    instruction: (s.maneuver && s.maneuver.instruction) ? s.maneuver.instruction : 'Continue',
+    distanceMeters: s.distance != null ? s.distance : 0,
+    durationSec: s.duration != null ? s.duration : 0,
+  })) : [];
+  return {
+    durationSec: route.duration != null ? route.duration : 0,
+    distanceMeters: route.distance != null ? route.distance : 0,
+    geometry: route.geometry,
+    steps,
+  };
+}
+
+async function handleWalkDirections(fromLngLat, toLngLat, res) {
+  const key = walkCacheKey(fromLngLat, toLngLat);
+  const cached = walkCache[key];
+  if (cached && Date.now() - cached.at < WALK_CACHE_TTL_MS) {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(cached.payload));
+    return;
+  }
+  try {
+    const payload = await fetchMapboxWalking(fromLngLat, toLngLat);
+    walkCache[key] = { payload, at: Date.now() };
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(payload));
+  } catch (err) {
+    console.error('Mapbox walk directions error:', err.message);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
   }
 }
 
@@ -241,6 +295,26 @@ const server = http.createServer((req, res) => {
     }
     res.writeHead(400, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'routeId must be P2P_EXPRESS or BAITY_HILL' }));
+    return;
+  }
+  const walkMatch = req.url && req.method === 'GET' && req.url.startsWith('/api/mapbox/directions/walk');
+  if (walkMatch) {
+    const u = new URL(req.url, 'http://localhost');
+    const from = u.searchParams.get('from');
+    const to = u.searchParams.get('to');
+    if (!from || !to) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing from or to (lng,lat)' }));
+      return;
+    }
+    const fromParts = from.split(',').map((n) => parseFloat(n.trim()));
+    const toParts = to.split(',').map((n) => parseFloat(n.trim()));
+    if (fromParts.length !== 2 || toParts.length !== 2 || fromParts.some(isNaN) || toParts.some(isNaN)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'from and to must be lng,lat' }));
+      return;
+    }
+    handleWalkDirections([fromParts[0], fromParts[1]], [toParts[0], toParts[1]], res);
     return;
   }
   res.writeHead(404);
