@@ -587,27 +587,63 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
     <div className="flex flex-col h-full bg-gray-50 p-4">
       <div className="mb-2 mt-2">
         <h2 className="text-2xl font-black text-gray-900 mb-4">Plan Trip</h2>
-        <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none z-10" size={20} aria-hidden />
-          <input
-            id="plan-trip-destination"
-            type="text"
-            autoComplete="off"
-            placeholder="Where do you want to go?"
-            aria-label="Destination search"
-            aria-expanded={searchFocused || showDropdownUnfocused}
-            aria-haspopup="listbox"
-            className="w-full bg-white pl-12 pr-4 py-4 rounded-t-xl rounded-b-none shadow-sm border border-gray-200 border-b-0 text-lg font-medium focus:outline-none focus:ring-2 focus:ring-p2p-blue focus:border-transparent placeholder-gray-400"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onFocus={() => { if (blurTimerRef.current) clearTimeout(blurTimerRef.current); blurTimerRef.current = null; setSearchFocused(true); }}
-            onBlur={() => { blurTimerRef.current = setTimeout(() => setSearchFocused(false), 200); }}
-            onKeyDown={handleSearchKeyDown}
-          />
-          <div className="absolute top-full left-0 right-0 z-50 bg-white rounded-b-xl shadow-lg border border-t-0 border-gray-200 overflow-hidden">
-            {dropdownContent}
+
+        {/* Search widget — own card; when focused, no bottom rounding so dropdown attaches */}
+        <div className={`bg-white shadow-sm border border-gray-200 overflow-visible ${showDropdownUnfocused ? 'rounded-xl' : 'rounded-t-xl border-b-0'}`}>
+          <div className="relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none z-10" size={20} aria-hidden />
+            <input
+              id="plan-trip-destination"
+              type="text"
+              autoComplete="off"
+              placeholder="Where do you want to go?"
+              aria-label="Destination search"
+              aria-expanded={searchFocused || showDropdownUnfocused}
+              aria-haspopup="listbox"
+              className="w-full bg-transparent pl-12 pr-4 py-4 text-lg font-medium focus:outline-none focus:ring-2 focus:ring-p2p-blue focus:ring-inset placeholder-gray-400 border-0 rounded-t-xl"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onFocus={() => { if (blurTimerRef.current) clearTimeout(blurTimerRef.current); blurTimerRef.current = null; setSearchFocused(true); }}
+              onBlur={() => { blurTimerRef.current = setTimeout(() => setSearchFocused(false), 200); }}
+              onKeyDown={handleSearchKeyDown}
+            />
+            {!showDropdownUnfocused && (
+              <div className="absolute top-full left-0 right-0 z-50 bg-white rounded-b-xl shadow-lg border border-t border-gray-200 overflow-hidden">
+                {dropdownContent}
+              </div>
+            )}
           </div>
         </div>
+
+        {/* Top Destinations widget — separate card when dropdown is closed */}
+        {showDropdownUnfocused && (
+          <div className="mt-4 sm:mt-5 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="p-4">
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Top Destinations</h3>
+              <ul className="space-y-1" role="listbox" aria-label="Top destinations" aria-activedescendant={selectableItems.length ? `dropdown-option-${highlightedIndex}` : undefined}>
+                {TOP_DESTINATIONS.map((dest, i) => (
+                  <li key={dest.id} role="option" aria-selected={highlightedIndex === i}>
+                    <button
+                      type="button"
+                      id={`dropdown-option-${i}`}
+                      data-dropdown-index={i}
+                      onClick={() => handleSelectDestination(dest)}
+                      onMouseEnter={() => setHighlightedIndex(i)}
+                      className={`w-full px-3 py-2.5 rounded-lg text-left flex items-center gap-2 active:scale-[0.99] transition-transform ${highlightedIndex === i ? 'bg-p2p-blue/10' : 'hover:bg-gray-50'}`}
+                    >
+                      <MapPin size={18} className="text-gray-400 shrink-0" />
+                      <div className="min-w-0 overflow-hidden">
+                        <div className="font-medium text-gray-900 truncate">{dest.name}</div>
+                        {dest.address && <div className="text-xs text-gray-500 truncate">{dest.address}</div>}
+                      </div>
+                      <ArrowRight size={16} className="text-gray-300 shrink-0 ml-auto" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
       </div>
       <div className="flex-1 min-h-0 pb-20" />
     </div>

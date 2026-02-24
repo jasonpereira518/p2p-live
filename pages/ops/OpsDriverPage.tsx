@@ -20,10 +20,12 @@ import { getRosterPerson } from '../../data/opsRoster';
 import { getSession } from '../../ops/auth';
 import { DriverLocationMap } from '../../components/ops/DriverLocationMap';
 import { Modal } from '../../components/ops/Modal';
+import { formatShiftDuration } from '../../utils/format';
 import { User } from 'lucide-react';
 
 const NOTE_DEBOUNCE_MS = 500;
 const NOTE_TAGS = ['GPS issue', 'Overcrowding', 'Detour', 'Maintenance', 'Other'];
+const ROUTE_CYCLE_MINUTES = 30;
 
 function generateId(): string {
   return `shift-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -131,7 +133,9 @@ export function OpsDriverPage() {
   const handleClockOut = useCallback(() => {
     if (!clockedInShift) return;
     const now = Date.now();
-    updateShift(driverId, clockedInShift.id, { clockOutAt: now });
+    const elapsedMinutes = Math.max(0, Math.floor((now - clockedInShift.clockInAt) / 60000));
+    const routeCompletionPercent = Math.round((elapsedMinutes / ROUTE_CYCLE_MINUTES) * 100);
+    updateShift(driverId, clockedInShift.id, { clockOutAt: now, routeCompletionPercent });
     setClockedInShift(null);
     setElapsed(0);
     setShifts(getDriverShifts(driverId));
@@ -220,6 +224,25 @@ export function OpsDriverPage() {
             <div className="mt-4 pt-4 border-t border-gray-100">
               <p className="text-sm text-gray-500">Clocked in at {new Date(clockedInShift.clockInAt).toLocaleTimeString()}</p>
               <p className="text-xl font-bold text-p2p-blue mt-1 font-mono tabular-nums">{formatElapsed(elapsed)}</p>
+              <div className="mt-4">
+                {(() => {
+                  const completionPercent = Math.round((elapsed / 60 / ROUTE_CYCLE_MINUTES) * 100);
+                  const barPercent = Math.min(100, Math.max(0, completionPercent));
+                  return (
+                    <>
+                <p className="text-sm font-semibold text-gray-700">
+                      Route Completion: {completionPercent}%
+                </p>
+                <div className="mt-1.5 h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-p2p-blue rounded-full transition-all duration-500 ease-out"
+                        style={{ width: `${barPercent}%` }}
+                  />
+                </div>
+                    </>
+                  );
+                })()}
+              </div>
             </div>
           )}
         </section>
@@ -243,8 +266,13 @@ export function OpsDriverPage() {
                     <p className="font-medium text-gray-900">{new Date(s.clockInAt).toLocaleDateString()} · {s.routeName}</p>
                     <p className="text-xs text-gray-500">
                       {new Date(s.clockInAt).toLocaleTimeString()} – {s.clockOutAt ? new Date(s.clockOutAt).toLocaleTimeString() : '—'}
-                      {s.clockOutAt && ` · ${Math.round((s.clockOutAt - s.clockInAt) / 60000)}m`}
+                      {s.clockOutAt && ` · ${formatShiftDuration((s.clockOutAt - s.clockInAt) / 60000)}`}
                     </p>
+                    {s.routeCompletionPercent != null && (
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Route Completion: {Math.round(s.routeCompletionPercent)}%
+                      </p>
+                    )}
                   </div>
                   <button
                     type="button"

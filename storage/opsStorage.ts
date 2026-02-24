@@ -11,6 +11,8 @@ export interface Shift {
   clockInAt: number;
   clockOutAt: number | null;
   createdAt: number;
+  /** Final route completion percent at clock-out; can exceed 100. */
+  routeCompletionPercent?: number;
 }
 
 const KEY_SHIFTS = 'p2p-ops-driver-shifts';

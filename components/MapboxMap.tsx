@@ -11,7 +11,7 @@ import type { Map as MapboxMapType, GeoJSONSource } from 'mapbox-gl';
 import { Stop, Vehicle, Coordinate, Journey } from '../types';
 import { P2P_EXPRESS_STOPS, BAITY_HILL_STOPS } from '../data/p2pStops';
 import { createRouteInterpolator, type LngLat } from '../utils/routeInterpolation';
-import { Navigation } from 'lucide-react';
+import { Navigation, Box, ExternalLink } from 'lucide-react';
 import { API } from '../utils/api';
 
 type GeoJSONFC = { type: 'FeatureCollection'; features: Array<{ type: 'Feature'; geometry: { type: 'Point'; coordinates: number[] } | { type: 'LineString'; coordinates: [number, number][] }; properties: Record<string, unknown> }> };
@@ -39,6 +39,7 @@ const DESTINATION_SOURCE = 'destination-source';
 const BUSES_LAYER = 'buses-layer';
 const USER_LAYER = 'user-layer';
 const USER_HALO_LAYER = 'user-halo-layer';
+const JOURNEY_CASING_LAYER = 'journey-casing-layer';
 const JOURNEY_LAYER = 'journey-layer';
 const JOURNEY_STOPS_LAYER = 'journey-stops-layer';
 const DESTINATION_LAYER = 'destination-layer';
@@ -228,6 +229,8 @@ export interface MapboxMapProps {
   onSelectBus: (bus: Vehicle) => void;
   onSelectStop: (stop: Stop) => void;
   enable3D?: boolean;
+  onToggle3D?: () => void;
+  onOpenRoutes?: () => void;
   className?: string;
 }
 
@@ -241,6 +244,8 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   onSelectBus,
   onSelectStop,
   enable3D = false,
+  onToggle3D,
+  onOpenRoutes,
   className = '',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -304,7 +309,13 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
         type: 'line',
         source: BAITY_HILL_LINE_SOURCE,
         layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': ROUTE_COLORS.BAITY_HILL, 'line-width': 4, 'line-opacity': 0.9 },
+        paint: {
+          'line-color': ROUTE_COLORS.BAITY_HILL,
+          'line-width': 4,
+          'line-opacity': 0.9,
+          // Screen-space offset so overlapping routes stay visually separated
+          'line-translate': [8, 0],
+        },
       });
 
       // Direction arrows: use canvas-generated image (Mapbox loadImage often fails for SVG)
@@ -501,6 +512,26 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
           'circle-stroke-color': '#fff',
         },
       });
+      // Journey casing (white outline) under black route for contrast
+      map.addLayer({
+        id: JOURNEY_CASING_LAYER,
+        type: 'line',
+        source: JOURNEY_SOURCE,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#ffffff',
+          'line-opacity': 0.9,
+          'line-width': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            10, 5,
+            13, 7,
+            16, 9,
+            19, 12,
+          ],
+        },
+      });
       map.addLayer({
         id: JOURNEY_LAYER,
         type: 'line',
@@ -508,8 +539,16 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
           'line-color': '#000',
-          'line-width': 5,
-          'line-opacity': 0.9,
+          'line-opacity': 0.95,
+          'line-width': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            10, 3,
+            13, 5,
+            16, 7,
+            19, 10,
+          ],
           'line-dasharray': ['case', ['==', ['get', 'segmentType'], 'walk'], ['literal', [2, 2]], ['literal', []]],
         },
       });
@@ -536,6 +575,15 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
         },
       });
 
+      // Ensure journey + casing always sit above colored routes and most symbols
+      try {
+        if (map.getLayer(JOURNEY_CASING_LAYER)) map.moveLayer(JOURNEY_CASING_LAYER);
+        if (map.getLayer(JOURNEY_LAYER)) map.moveLayer(JOURNEY_LAYER);
+        if (map.getLayer(JOURNEY_STOPS_LAYER)) map.moveLayer(JOURNEY_STOPS_LAYER);
+        if (map.getLayer(DESTINATION_LAYER)) map.moveLayer(DESTINATION_LAYER);
+      } catch {
+        /* ignore */
+      }
       setMapReady(true);
     });
 
@@ -588,6 +636,16 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
         });
       } else {
         d.setData(emptyFC());
+      }
+    }
+    if (activeJourney) {
+      try {
+        if (map.getLayer(JOURNEY_CASING_LAYER)) map.moveLayer(JOURNEY_CASING_LAYER);
+        if (map.getLayer(JOURNEY_LAYER)) map.moveLayer(JOURNEY_LAYER);
+        if (map.getLayer(JOURNEY_STOPS_LAYER)) map.moveLayer(JOURNEY_STOPS_LAYER);
+        if (map.getLayer(DESTINATION_LAYER)) map.moveLayer(DESTINATION_LAYER);
+      } catch {
+        /* ignore if layers not ready */
       }
     }
   }, [mapReady, selectedStopId, userLocation, activeJourney]);
@@ -868,47 +926,80 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       <div ref={containerRef} className="absolute inset-0 w-full h-full" />
       {mapReady && (
         <div
-          className="absolute top-2 left-2 z-[500] flex flex-wrap items-center gap-3 bg-white/95 rounded-xl shadow-md border border-gray-200/80 p-3"
+          className="absolute top-2 left-2 z-[500] flex flex-col gap-2 w-[calc(100%-1rem)] max-w-sm"
           style={{ fontFamily: "'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif" }}
           role="group"
-          aria-label="Route visibility"
+          aria-label="Map controls"
         >
-          <div className="flex items-center gap-2">
-            <span className="text-base font-semibold tracking-tight text-[#418FC5]">Buses</span>
-            <span className="inline-flex min-w-[28px] items-center justify-center rounded-lg bg-[#418FC5]/15 px-2 py-0.5 text-sm font-bold text-[#418FC5]">
-              {vehicles.length}
-            </span>
+          <div
+            className="flex flex-wrap items-center gap-3 bg-white/95 rounded-xl shadow-md border border-gray-200/80 p-3"
+            role="group"
+            aria-label="Route visibility"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-base font-semibold tracking-tight text-[#418FC5]">Buses</span>
+              <span className="inline-flex min-w-[28px] items-center justify-center rounded-lg bg-[#418FC5]/15 px-2 py-0.5 text-sm font-bold text-[#418FC5]">
+                {vehicles.length}
+              </span>
+            </div>
+            <label className="flex cursor-pointer items-center gap-3 rounded focus-within:ring-2 focus-within:ring-[#418FC5]/40 focus-within:ring-offset-1">
+              <input
+                type="checkbox"
+                checked={showExpress}
+                onChange={(e) => setShowExpress(e.target.checked)}
+                className="h-4 w-4 shrink-0 cursor-pointer rounded-[6px] border-2 border-gray-300 bg-white shadow-sm transition-all duration-200 appearance-none hover:border-gray-400 focus:ring-0 focus:ring-offset-0 checked:border-[#418FC5] checked:bg-[#418FC5] checked:bg-[length:12px_12px] checked:bg-center checked:bg-no-repeat"
+                style={{
+                  backgroundImage: showExpress
+                    ? "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5L20 7'/%3E%3C/svg%3E\")"
+                    : undefined,
+                }}
+                aria-label="Toggle P2P Express route"
+              />
+              <span className="text-sm font-medium" style={{ color: ROUTE_COLORS.P2P_EXPRESS }}>P2P Express</span>
+            </label>
+            <label className="flex cursor-pointer items-center gap-3 rounded focus-within:ring-2 focus-within:ring-[#C33934]/40 focus-within:ring-offset-1">
+              <input
+                type="checkbox"
+                checked={showBaity}
+                onChange={(e) => setShowBaity(e.target.checked)}
+                className="h-4 w-4 shrink-0 cursor-pointer rounded-[6px] border-2 border-gray-300 bg-white shadow-sm transition-all duration-200 appearance-none hover:border-gray-400 focus:ring-0 focus:ring-offset-0 checked:border-[#C33934] checked:bg-[#C33934] checked:bg-[length:12px_12px] checked:bg-center checked:bg-no-repeat"
+                style={{
+                  backgroundImage: showBaity
+                    ? "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5L20 7'/%3E%3C/svg%3E\")"
+                    : undefined,
+                }}
+                aria-label="Toggle Baity Hill route"
+              />
+              <span className="text-sm font-medium" style={{ color: ROUTE_COLORS.BAITY_HILL }}>Baity Hill</span>
+            </label>
           </div>
-          <label className="flex cursor-pointer items-center gap-3 rounded focus-within:ring-2 focus-within:ring-[#418FC5]/40 focus-within:ring-offset-1">
-            <input
-              type="checkbox"
-              checked={showExpress}
-              onChange={(e) => setShowExpress(e.target.checked)}
-              className="h-4 w-4 shrink-0 cursor-pointer rounded-[6px] border-2 border-gray-300 bg-white shadow-sm transition-all duration-200 appearance-none hover:border-gray-400 focus:ring-0 focus:ring-offset-0 checked:border-[#418FC5] checked:bg-[#418FC5] checked:bg-[length:12px_12px] checked:bg-center checked:bg-no-repeat"
-              style={{
-                backgroundImage: showExpress
-                  ? "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5L20 7'/%3E%3C/svg%3E\")"
-                  : undefined,
-              }}
-              aria-label="Toggle P2P Express route"
-            />
-            <span className="text-sm font-medium" style={{ color: ROUTE_COLORS.P2P_EXPRESS }}>P2P Express</span>
-          </label>
-          <label className="flex cursor-pointer items-center gap-3 rounded focus-within:ring-2 focus-within:ring-[#C33934]/40 focus-within:ring-offset-1">
-            <input
-              type="checkbox"
-              checked={showBaity}
-              onChange={(e) => setShowBaity(e.target.checked)}
-              className="h-4 w-4 shrink-0 cursor-pointer rounded-[6px] border-2 border-gray-300 bg-white shadow-sm transition-all duration-200 appearance-none hover:border-gray-400 focus:ring-0 focus:ring-offset-0 checked:border-[#C33934] checked:bg-[#C33934] checked:bg-[length:12px_12px] checked:bg-center checked:bg-no-repeat"
-              style={{
-                backgroundImage: showBaity
-                  ? "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5L20 7'/%3E%3C/svg%3E\")"
-                  : undefined,
-              }}
-              aria-label="Toggle Baity Hill route"
-            />
-            <span className="text-sm font-medium" style={{ color: ROUTE_COLORS.BAITY_HILL }}>Baity Hill</span>
-          </label>
+
+          {/* When navigation active: compact icon-only 3D + Routes under Buses */}
+          {activeJourney && (onToggle3D != null || onOpenRoutes != null) && (
+            <div className="flex flex-col gap-2">
+              {onToggle3D != null && (
+                <button
+                  type="button"
+                  onClick={onToggle3D}
+                  className="w-10 h-10 rounded-full bg-white/95 backdrop-blur-sm shadow-md border border-gray-200/80 flex items-center justify-center text-gray-700 hover:bg-white active:scale-[0.98] transition-all self-start"
+                  aria-label="Toggle 3D view"
+                  aria-pressed={enable3D}
+                >
+                  <Box size={20} strokeWidth={2} />
+                </button>
+              )}
+              {onOpenRoutes != null && (
+                <button
+                  type="button"
+                  onClick={onOpenRoutes}
+                  className="w-10 h-10 rounded-full bg-white/95 backdrop-blur-sm shadow-md border border-gray-200/80 flex items-center justify-center text-gray-700 hover:bg-white active:scale-[0.98] transition-all self-start"
+                  aria-label="View P2P routes PDF"
+                >
+                  <ExternalLink size={20} />
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
       {userLocation && (

@@ -5,6 +5,7 @@
 import React from 'react';
 import { StatusChip } from './StatusChip';
 import { Avatar } from './Avatar';
+import { formatShiftDuration } from '../../utils/format';
 
 interface DriverSessionRowProps {
   driverName: string;
@@ -17,11 +18,8 @@ interface DriverSessionRowProps {
 }
 
 function formatDuration(ms: number): string {
-  const totalSec = Math.floor(ms / 1000);
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
+  const totalMinutes = Math.floor(ms / 60000);
+  return formatShiftDuration(totalMinutes);
 }
 
 export function DriverSessionRow({

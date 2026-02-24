@@ -40,6 +40,16 @@ export function formatDuration(totalSeconds: number | null | undefined): string 
   return `${hours} hr ${minutesPart} min`;
 }
 
+/** Shift duration: "XX min" if <=59 min, else "X hr Y min" (no decimals). */
+export function formatShiftDuration(totalMinutes: number | null | undefined): string {
+  if (totalMinutes == null || !Number.isFinite(totalMinutes)) return '—';
+  const min = Math.max(0, Math.floor(totalMinutes));
+  if (min <= 59) return `${min} min`;
+  const hours = Math.floor(min / 60);
+  const mins = min % 60;
+  return `${hours} hr ${mins} min`;
+}
+
 export function formatETA(
   durationSeconds: number | null | undefined,
   now: Date = new Date()

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { MapboxMap } from './MapboxMap';
 import { Stop, Vehicle, Coordinate, Journey } from '../types';
 import { getDistanceMeters, getWalkTimeMinutes } from '../utils/geo';
-import { Navigation, X, ExternalLink } from 'lucide-react';
+import { Navigation, X, Box, ExternalLink } from 'lucide-react';
 
 const UNC_P2P_ROUTES_PDF_URL = 'https://move.unc.edu/wp-content/uploads/sites/248/2022/08/unc-point-to-point-map.pdf';
 
@@ -43,29 +43,35 @@ export const MapView: React.FC<MapViewProps> = ({
         onSelectBus={onSelectBus}
         onSelectStop={onSelectStop}
         enable3D={enable3D}
+        onToggle3D={() => setEnable3D((v) => !v)}
+        onOpenRoutes={() => window.open(UNC_P2P_ROUTES_PDF_URL, '_blank', 'noopener,noreferrer')}
         className="w-full h-full"
       />
 
-      <div className="absolute bottom-20 left-3 flex flex-col gap-2 z-[400]">
-        <button
-          type="button"
-          onClick={() => setEnable3D((v) => !v)}
-          className="min-w-[44px] min-h-[44px] px-4 py-2.5 rounded-2xl bg-white/95 backdrop-blur-sm shadow-md border border-gray-200/80 text-sm font-medium text-gray-700 hover:bg-white hover:shadow-lg active:scale-[0.98] transition-all flex items-center justify-center"
-          aria-label="Toggle 3D view"
-          aria-pressed={enable3D}
-        >
-          3D
-        </button>
-        <button
-          type="button"
-          onClick={() => window.open(UNC_P2P_ROUTES_PDF_URL, '_blank', 'noopener,noreferrer')}
-          className="min-w-[44px] min-h-[44px] px-4 py-2.5 rounded-2xl bg-white/95 backdrop-blur-sm shadow-md border border-gray-200/80 text-sm font-medium text-gray-700 hover:bg-white hover:shadow-lg active:scale-[0.98] transition-all inline-flex items-center justify-center gap-2"
-          aria-label="View P2P routes PDF"
-        >
-          <ExternalLink size={16} className="shrink-0" />
-          <span>Routes</span>
-        </button>
-      </div>
+      {/* Original 3D + Routes position when NOT navigating */}
+      {!activeJourney && (
+        <div className="absolute bottom-20 left-3 flex flex-col gap-2 z-[400]">
+          <button
+            type="button"
+            onClick={() => setEnable3D((v) => !v)}
+            className="min-w-[44px] min-h-[44px] px-4 py-2.5 rounded-2xl bg-white/95 backdrop-blur-sm shadow-md border border-gray-200/80 text-sm font-medium text-gray-700 hover:bg-white hover:shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+            aria-label="Toggle 3D view"
+            aria-pressed={enable3D}
+          >
+            <Box size={18} className="shrink-0" strokeWidth={2} />
+            <span>3D</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => window.open(UNC_P2P_ROUTES_PDF_URL, '_blank', 'noopener,noreferrer')}
+            className="min-w-[44px] min-h-[44px] px-4 py-2.5 rounded-2xl bg-white/95 backdrop-blur-sm shadow-md border border-gray-200/80 text-sm font-medium text-gray-700 hover:bg-white hover:shadow-lg active:scale-[0.98] transition-all inline-flex items-center justify-center gap-2"
+            aria-label="View P2P routes PDF"
+          >
+            <ExternalLink size={16} className="shrink-0" />
+            <span>Routes</span>
+          </button>
+        </div>
+      )}
 
       {activeJourney && (() => {
         const busSegment = activeJourney.segments.find((s) => s.type === 'bus');
