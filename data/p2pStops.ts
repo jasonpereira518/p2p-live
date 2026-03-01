@@ -66,3 +66,27 @@ export const STOPS: Stop[] = [
   ...P2P_EXPRESS_STOPS.map((s) => ({ id: s.id, name: s.name, lat: s.lat, lon: s.lon })),
   ...BAITY_HILL_STOPS.map((s) => ({ id: s.id, name: s.name, lat: s.lat, lon: s.lon })),
 ];
+
+const ROUTE_DISPLAY_NAMES: Record<RouteId, string> = {
+  P2P_EXPRESS: 'P2P Express',
+  BAITY_HILL: 'Baity Hill',
+};
+
+/** Tolerance for "same location" in degrees (~meters). */
+const SAME_LOC_TOL = 1e-5;
+
+/** Return route display names that serve this stop (by matching lat/lon). */
+export function getRoutesServedForStop(stop: { lat: number; lon: number }): string[] {
+  const names = new Set<string>();
+  for (const s of P2P_EXPRESS_STOPS) {
+    if (Math.abs(s.lat - stop.lat) < SAME_LOC_TOL && Math.abs(s.lon - stop.lon) < SAME_LOC_TOL) {
+      names.add(ROUTE_DISPLAY_NAMES[s.routeId]);
+    }
+  }
+  for (const s of BAITY_HILL_STOPS) {
+    if (Math.abs(s.lat - stop.lat) < SAME_LOC_TOL && Math.abs(s.lon - stop.lon) < SAME_LOC_TOL) {
+      names.add(ROUTE_DISPLAY_NAMES[s.routeId]);
+    }
+  }
+  return Array.from(names);
+}

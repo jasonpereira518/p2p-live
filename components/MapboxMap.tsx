@@ -302,6 +302,7 @@ export interface MapboxMapProps {
   activeJourney: Journey | null;
   onSelectBus: (bus: Vehicle) => void;
   onSelectStop: (stop: Stop) => void;
+  onMapClick?: () => void;
   enable3D?: boolean;
   onToggle3D?: () => void;
   onOpenRoutes?: () => void;
@@ -317,6 +318,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   activeJourney,
   onSelectBus,
   onSelectStop,
+  onMapClick,
   enable3D = false,
   onToggle3D,
   onOpenRoutes,
@@ -597,7 +599,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
           source: BUSES_SOURCE,
           layout: {
             'icon-image': ['match', ['get', 'routeId'], 'p2p-express', 'bus-express', 'bus-baity'],
-            'icon-size': 0.03,
+            'icon-size': 0.032,
             'icon-rotate': ['get', 'bearing'],
             'icon-rotation-alignment': 'map',
             'icon-allow-overlap': true,
@@ -1006,6 +1008,10 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
         if (stop) onSelectStop(stop);
       }
     };
+    const onMapClickEmpty = (e: mapboxgl.MapMouseEvent) => {
+      if (!e.features || e.features.length === 0) onMapClick?.();
+    };
+    map.on('click', onMapClickEmpty);
     map.on('click', BUSES_LAYER, onBus);
     map.on('click', P2P_EXPRESS_STOPS_LAYER, onStop);
     map.on('click', BAITY_HILL_STOPS_LAYER, onStop);
@@ -1017,6 +1023,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     map.on('mouseenter', BAITY_HILL_STOPS_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', BAITY_HILL_STOPS_LAYER, () => { map.getCanvas().style.cursor = 'default'; });
     return () => {
+      map.off('click', onMapClickEmpty);
       map.off('click', BUSES_LAYER, onBus);
       map.off('click', P2P_EXPRESS_STOPS_LAYER, onStop);
       map.off('click', BAITY_HILL_STOPS_LAYER, onStop);
@@ -1027,7 +1034,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       map.off('mouseenter', BAITY_HILL_STOPS_LAYER);
       map.off('mouseleave', BAITY_HILL_STOPS_LAYER);
     };
-  }, [mapReady, stops, vehicles, onSelectBus, onSelectStop]);
+  }, [mapReady, stops, vehicles, onSelectBus, onSelectStop, onMapClick]);
 
   enabledBusRoutesRef.current = { showExpress, showBaity };
 

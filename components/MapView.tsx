@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { MapboxMap } from './MapboxMap';
+import { StopPopup } from './StopPopup';
 import { Stop, Vehicle, Coordinate, Journey } from '../types';
-import { getDistanceMeters, getWalkTimeMinutes } from '../utils/geo';
-import { Navigation, X, Box, ExternalLink } from 'lucide-react';
+import { X, Box, ExternalLink } from 'lucide-react';
 
 const UNC_P2P_ROUTES_PDF_URL = 'https://move.unc.edu/wp-content/uploads/sites/248/2022/08/unc-point-to-point-map.pdf';
 
@@ -12,10 +12,13 @@ interface MapViewProps {
   userLocation: Coordinate;
   onSelectBus: (bus: Vehicle) => void;
   onSelectStop: (stop: Stop) => void;
+  onDismissStop: () => void;
   selectedStop: Stop | null;
   activeJourney?: Journey | null;
   onClearJourney?: () => void;
+  onStartWalkToStop?: (journey: Journey) => void;
   userLocationResolved?: boolean;
+  onViewList?: () => void;
 }
 
 export const MapView: React.FC<MapViewProps> = ({
@@ -24,10 +27,13 @@ export const MapView: React.FC<MapViewProps> = ({
   userLocation,
   onSelectBus,
   onSelectStop,
+  onDismissStop,
   selectedStop,
   activeJourney,
   onClearJourney,
+  onStartWalkToStop,
   userLocationResolved = true,
+  onViewList,
 }) => {
   const [enable3D, setEnable3D] = useState(false);
 
@@ -42,6 +48,7 @@ export const MapView: React.FC<MapViewProps> = ({
         activeJourney={activeJourney ?? null}
         onSelectBus={onSelectBus}
         onSelectStop={onSelectStop}
+        onMapClick={onDismissStop}
         enable3D={enable3D}
         onToggle3D={() => setEnable3D((v) => !v)}
         onOpenRoutes={() => window.open(UNC_P2P_ROUTES_PDF_URL, '_blank', 'noopener,noreferrer')}
@@ -78,6 +85,8 @@ export const MapView: React.FC<MapViewProps> = ({
         const routeLabel = busSegment
           ? `Navigating via ${busSegment.routeName ?? 'bus'}`
           : 'Navigating: Walk only (faster than bus)';
+        const totalDistMeters = activeJourney.segments.reduce((sum, s) => sum + (s.distanceMeters ?? 0), 0);
+        const distanceFeet = Math.round(totalDistMeters * 3.28084);
         return (
           <div className="absolute bottom-24 left-4 right-4 z-[400] animate-in slide-in-from-bottom-4 flex justify-center pointer-events-none">
             <div className="pointer-events-auto bg-white p-4 rounded-xl shadow-lg border border-gray-100 flex items-center justify-between gap-3 max-w-md w-full">
@@ -86,7 +95,9 @@ export const MapView: React.FC<MapViewProps> = ({
                 <div className="font-bold text-gray-900 truncate">{activeJourney.destination.name}</div>
                 <div className="text-xs text-p2p-blue font-semibold mt-0.5">{routeLabel}</div>
                 <div className="text-xs text-gray-500 mt-0.5">
-                  {activeJourney.totalDurationMin} min • {activeJourney.segments.length} steps
+                  {activeJourney.totalDurationMin} min
+                  {distanceFeet > 0 && ` • ${distanceFeet.toLocaleString()} ft`}
+                  {activeJourney.segments.length > 1 && ` • ${activeJourney.segments.length} steps`}
                 </div>
               </div>
               <button
@@ -103,18 +114,18 @@ export const MapView: React.FC<MapViewProps> = ({
       })()}
 
       {selectedStop && !activeJourney && (
-        <div className="absolute top-20 left-4 right-4 bg-white p-4 rounded-xl shadow-lg border border-gray-100 z-[400] animate-in fade-in slide-in-from-top-4 duration-300">
-          <div className="flex justify-between items-center">
-            <div>
-              <div className="text-xs font-bold text-gray-400 uppercase">Selected Stop</div>
-              <div className="font-bold text-gray-900 text-lg">{selectedStop.name}</div>
-            </div>
-            <div className="flex items-center text-p2p-blue bg-p2p-light-blue/20 px-3 py-1.5 rounded-lg">
-              <Navigation size={16} className="mr-1.5" />
-              <span className="font-bold">
-                {getWalkTimeMinutes(getDistanceMeters(userLocation, selectedStop))} min
-              </span>
-            </div>
+        <div className="absolute top-20 left-0 right-0 z-[400] flex justify-center pointer-events-none">
+          <div className="pointer-events-auto">
+            <StopPopup
+              stop={selectedStop}
+              userLocation={userLocation}
+              userLocationResolved={userLocationResolved}
+              onClose={onDismissStop}
+              onWalkToStop={(journey) => {
+                onStartWalkToStop?.(journey);
+              }}
+              onViewOnList={onViewList}
+            />
           </div>
         </div>
       )}

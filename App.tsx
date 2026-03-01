@@ -149,9 +149,12 @@ function App() {
               onSelectStop={(stop) => {
                 setSelectedStop((prev) => (prev?.id === stop.id ? null : stop));
               }}
+              onDismissStop={() => setSelectedStop(null)}
               selectedStop={selectedStop}
               activeJourney={activeJourney}
               onClearJourney={() => setActiveJourney(null)}
+              onStartWalkToStop={(journey) => setActiveJourney(journey)}
+              onViewList={() => { setView('list'); setSelectedStop(null); }}
             />
           </div>
         )}

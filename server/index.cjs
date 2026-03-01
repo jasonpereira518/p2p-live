@@ -151,6 +151,25 @@ async function handleWalkDirections(fromLngLat, toLngLat, res) {
   }
 }
 
+function getMockArrivals(stopId) {
+  const routeNames = ['P2P Express', 'Baity Hill'];
+  const hash = (s) => {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) - h) + s.charCodeAt(i) | 0;
+    return Math.abs(h);
+  };
+  const seed = hash(stopId);
+  const count = 3 + (seed % 3);
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const routeName = routeNames[(seed + i) % routeNames.length];
+    const etaMin = 2 + (seed % 5) + i * (4 + (seed % 4));
+    out.push({ routeName, etaMin });
+  }
+  out.sort((a, b) => a.etaMin - b.etaMin);
+  return out;
+}
+
 let summaryCache = null;
 let cacheKey = null;
 
@@ -342,6 +361,20 @@ const server = http.createServer((req, res) => {
       return;
     }
     handleWalkDirections([fromParts[0], fromParts[1]], [toParts[0], toParts[1]], res);
+    return;
+  }
+  const arrivalsMatch = req.url && req.method === 'GET' && req.url.startsWith('/api/arrivals');
+  if (arrivalsMatch) {
+    const u = new URL(req.url, 'http://localhost');
+    const stopId = u.searchParams.get('stopId');
+    if (!stopId || !stopId.trim()) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing stopId' }));
+      return;
+    }
+    const arrivals = getMockArrivals(stopId.trim());
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ arrivals }));
     return;
   }
   res.writeHead(404);
