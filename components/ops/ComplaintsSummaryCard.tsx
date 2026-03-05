@@ -23,12 +23,15 @@ function parseMarkdownSimple(text: string): React.ReactNode {
     <>
       {lines.map((line, i) => {
         const trimmed = line.trim();
-        if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-          return <li key={i} className="ml-4">{trimmed.slice(2)}</li>;
+        if (!trimmed) return <br key={i} />;
+        const cleaned = trimmed.replace(/\*\*/g, ''); // strip markdown bold markers
+        if (cleaned.startsWith('- ') || cleaned.startsWith('* ')) {
+          return <li key={i} className="ml-4">{cleaned.slice(2)}</li>;
         }
-        if (trimmed.startsWith('##')) return <h4 key={i} className="font-bold mt-2 text-gray-900">{trimmed.replace(/^#+\s*/, '')}</h4>;
-        if (trimmed) return <p key={i} className="mt-1">{trimmed}</p>;
-        return <br key={i} />;
+        if (cleaned.startsWith('##')) {
+          return <h4 key={i} className="font-bold mt-2 text-gray-900">{cleaned.replace(/^#+\s*/, '')}</h4>;
+        }
+        return <p key={i} className="mt-1">{cleaned}</p>;
       })}
     </>
   );
@@ -65,12 +68,19 @@ export function ComplaintsSummaryCard({ complaints }: ComplaintsSummaryCardProps
     }
   }, [complaints]);
 
-  const hasCached = data?.summaryMarkdown && data?.generatedAtISO;
+  React.useEffect(() => {
+    // Auto-generate on first load so managers immediately see a summary.
+    if (!data && !loading && !error) {
+      fetchSummary();
+    }
+  }, [data, loading, error, fetchSummary]);
+
+  const hasCached = !!(data?.summaryMarkdown && data?.generatedAtISO);
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-gray-900">LLM Summary</h2>
+    <div className="rounded-xl border border-slate-200 bg-slate-50/80 shadow-sm overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-gray-900">AI Summary of Complaints</h2>
         <div className="flex items-center gap-2">
           {data?.generatedAtISO && (
             <span className="text-xs text-gray-500">
@@ -84,11 +94,11 @@ export function ComplaintsSummaryCard({ complaints }: ComplaintsSummaryCardProps
             disabled={loading}
             className="px-3 py-1.5 rounded-lg text-sm font-medium bg-p2p-blue text-white hover:bg-p2p-blue/90 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-p2p-blue"
           >
-            {loading ? 'Generating…' : 'Regenerate'}
+            {loading ? 'Generating AI summary…' : hasCached ? 'Regenerate' : 'Generate'}
           </button>
         </div>
       </div>
-      <div className="p-4 min-h-[80px]">
+      <div className="p-4 min-h-[80px] bg-white/80">
         {loading && !hasCached && (
           <div className="animate-pulse space-y-2">
             <div className="h-3 bg-gray-200 rounded w-full" />
@@ -110,7 +120,7 @@ export function ComplaintsSummaryCard({ complaints }: ComplaintsSummaryCardProps
           <p className="text-xs text-amber-700 mb-2">Couldn&apos;t generate summary. Showing latest available summary.</p>
         )}
         {data?.summaryMarkdown && (
-          <div className="text-sm text-gray-700 prose prose-sm max-w-none">
+          <div className="text-sm text-gray-700 leading-relaxed max-w-prose">
             {parseMarkdownSimple(data.summaryMarkdown)}
           </div>
         )}

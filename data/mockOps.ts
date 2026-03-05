@@ -7,7 +7,8 @@
 
 export const MOCK_SYSTEM_HEALTH = {
   apiStatus: 'healthy' as const,
-  uptimePercent: 99.98,
+  uptimePercentToday: 99.98,
+  uptimePercentMonth: 99.92,
   lastIncidentAt: '2025-02-20T14:00:00Z',
   lastIncidentMessage: 'Brief latency spike (resolved in 2m)',
 };
@@ -17,7 +18,8 @@ export const MOCK_LATENCY = {
   p95Ms: 120,
   p99Ms: 280,
   errorRatePercent: 0.02,
-  sparklineData: [40, 45, 42, 48, 41, 43, 44],
+  sparklineLastHour: [40, 45, 42, 48, 41, 43, 44],
+  sparklineLastDay: [55, 60, 52, 70, 48, 50, 65, 58, 54, 62, 59, 57],
 };
 
 export const MOCK_TRAFFIC = {
@@ -30,11 +32,130 @@ export const MOCK_TRAFFIC = {
   ],
 };
 
+export const MOCK_ERROR_METRICS = {
+  errors4xxToday: 37,
+  errors5xxToday: 5,
+  failedLlmCalls: 2,
+  directionsFailures: 3,
+};
+
+export const MOCK_MAP_PERF = {
+  initialLoadMsP50: 680,
+  initialLoadMsP95: 1100,
+  tileLoadMsP50: 220,
+  tileLoadMsP95: 380,
+  fpsAverage: 57,
+};
+
+export const MOCK_VEHICLE_UPDATES = {
+  avgRefreshSeconds: 3.2,
+  missedUpdatesLastHour: 4,
+  totalVehiclesTracked: 6,
+};
+
+export const MOCK_UPTIME_SERIES = {
+  last7Days: [
+    { day: 'Mon', uptimePercent: 99.9 },
+    { day: 'Tue', uptimePercent: 99.8 },
+    { day: 'Wed', uptimePercent: 99.7 },
+    { day: 'Thu', uptimePercent: 99.9 },
+    { day: 'Fri', uptimePercent: 100.0 },
+    { day: 'Sat', uptimePercent: 99.6 },
+    { day: 'Sun', uptimePercent: 99.8 },
+  ],
+};
+
 export const MOCK_ALERTS = [
   { id: 'a1', severity: 'warning' as const, message: 'Elevated p99 latency on /api/vehicles', at: '2025-02-21T10:15:00Z' },
   { id: 'a2', severity: 'info' as const, message: 'Scheduled deploy completed', at: '2025-02-21T09:00:00Z' },
   { id: 'a3', severity: 'critical' as const, message: 'GPS feed delayed >30s (recovered)', at: '2025-02-20T14:02:00Z' },
 ];
+
+// --- Admin dashboard: route analytics + optimization metrics ---
+
+export const MOCK_ROUTE_ANALYTICS = {
+  'P2P Express': {
+    activeBuses: 3,
+    avgDelayMin: 2.5,
+    deviationPerHour: 0.4,
+    avgFullnessPercent: 76,
+    gpsDropoutsPerHour: 0.2,
+    trackerFreezeIncidentsToday: 1,
+    etaAccuracyPercent: 91,
+  },
+  'Baity Hill': {
+    activeBuses: 2,
+    avgDelayMin: 3.8,
+    deviationPerHour: 0.7,
+    avgFullnessPercent: 68,
+    gpsDropoutsPerHour: 0.3,
+    trackerFreezeIncidentsToday: 2,
+    etaAccuracyPercent: 87,
+  },
+};
+
+export const MOCK_OPTIMIZATION_METRICS = {
+  avgWalkTimeMin: 4.3,
+  avgWaitTimeMin: 5.7,
+  mostCongestedStop: 'Student Union (Union)',
+  mostUnderutilizedStop: 'Baity Hill Community',
+  routeEfficiencyScore: {
+    'P2P Express': 86,
+    'Baity Hill': 79,
+  },
+  boardingHeatmap: [
+    // simple 3x4 grid, values 0–1
+    [0.8, 0.9, 0.6, 0.3],
+    [0.4, 0.7, 0.5, 0.2],
+    [0.1, 0.3, 0.4, 0.15],
+  ],
+  avgInVehicleTimeMin: 11.2,
+};
+
+/** Display names and sub-metrics for Admin Optimization section (congestion rules). */
+export const ADMIN_OPTIMIZATION_DISPLAY = {
+  mostCongestedStop: {
+    name: 'Hinton James',
+    averageDwellTimeSec: 58,
+    boardingsPerHour: 118,
+  },
+  mostUnderutilizedStop: {
+    name: 'Credit Union',
+    boardingsPerHour: 8,
+    waitImpact: 'minimal',
+  },
+};
+
+export const MOCK_DEV_DIAGNOSTICS = {
+  env: {
+    nodeEnv: 'production',
+    mapboxTokenConfigured: true,
+    geminiKeyConfigured: true,
+    opsApiBaseConfigured: true,
+  },
+  apiKeys: {
+    mapbox: 'configured',
+    gemini: 'configured',
+    opsBackend: 'configured',
+  },
+  cache: {
+    routeCacheHitRatePercent: 93,
+    walkCacheHitRatePercent: 88,
+  },
+  db: {
+    readMsP95: 14,
+    writeMsP95: 22,
+  },
+  memory: {
+    rssMb: 310,
+    heapUsedMb: 140,
+  },
+  websocket: {
+    activeConnections: 38,
+    pingLatencyMsP95: 48,
+    droppedConnectionsLastHour: 1,
+  },
+};
 
 // --- Fleet status (capacity bars, off-route) ---
 

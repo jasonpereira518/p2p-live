@@ -22,6 +22,11 @@ const WALK_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 let routeCache = Object.create(null);
 let walkCache = Object.create(null);
 
+// Lightweight in-process diagnostics counters (reset on server restart).
+let failedLlmCalls = 0;
+let directionsFailures = 0;
+let routeDirectionsFailures = 0;
+
 function roundCoord(c, decimals = 5) {
   return [Number(c[0].toFixed(decimals)), Number(c[1].toFixed(decimals))];
 }
@@ -58,26 +63,40 @@ async function fetchMapboxRoute(routeId, coords) {
       chunks.push(chunk);
     }
     const allCoords = [];
+    let totalDistance = 0;
+    let totalDuration = 0;
     for (let i = 0; i < chunks.length; i++) {
       const chunkCoords = chunks[i].map((c) => c.join(',')).join(';');
       const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${chunkCoords}?geometries=geojson&overview=full&steps=false&access_token=${encodeURIComponent(MAPBOX_TOKEN)}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Mapbox Directions ${res.status}: ${await res.text()}`);
       const data = await res.json();
-      const geom = data.routes?.[0]?.geometry;
+      const route = data.routes?.[0];
+      const geom = route?.geometry;
       if (!geom || !geom.coordinates) throw new Error('Invalid Mapbox response');
       if (i === 0) allCoords.push(...geom.coordinates);
       else allCoords.push(...geom.coordinates.slice(1));
+      totalDistance += route?.distance != null ? route.distance : 0;
+      totalDuration += route?.duration != null ? route.duration : 0;
     }
-    return { type: 'LineString', coordinates: allCoords };
+    return {
+      geometry: { type: 'LineString', coordinates: allCoords },
+      distanceMeters: totalDistance,
+      durationSec: totalDuration,
+    };
   }
   const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordStr}?geometries=geojson&overview=full&steps=false&access_token=${encodeURIComponent(MAPBOX_TOKEN)}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Mapbox Directions ${res.status}: ${await res.text()}`);
   const data = await res.json();
-  const geom = data.routes?.[0]?.geometry;
+  const route = data.routes?.[0];
+  const geom = route?.geometry;
   if (!geom || !geom.coordinates) throw new Error('Invalid Mapbox response');
-  return geom;
+  return {
+    geometry: geom,
+    distanceMeters: route?.distance != null ? route.distance : 0,
+    durationSec: route?.duration != null ? route.duration : 0,
+  };
 }
 
 async function handleMapboxRoute(routeId, res) {
@@ -96,14 +115,21 @@ async function handleMapboxRoute(routeId, res) {
     return;
   }
   try {
-    const geometry = await fetchMapboxRoute(routeId, coords);
+    const { geometry, distanceMeters, durationSec } = await fetchMapboxRoute(routeId, coords);
     const waypoints = coords.map((c, i) => ({ name: `Stop ${i + 1}`, coordinates: c, order: i }));
-    const payload = { routeId, geometry: { type: geometry.type, coordinates: geometry.coordinates }, waypoints };
+    const payload = {
+      routeId,
+      geometry: { type: geometry.type, coordinates: geometry.coordinates },
+      waypoints,
+      distanceMeters,
+      durationSec,
+    };
     routeCache[cacheKey] = { payload, at: Date.now() };
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(payload));
   } catch (err) {
     console.error('Mapbox route error:', err.message);
+    routeDirectionsFailures += 1;
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: err.message, routeId }));
   }
@@ -146,6 +172,7 @@ async function handleWalkDirections(fromLngLat, toLngLat, res) {
     res.end(JSON.stringify(payload));
   } catch (err) {
     console.error('Mapbox walk directions error:', err.message);
+    directionsFailures += 1;
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: err.message }));
   }
@@ -216,6 +243,60 @@ Respond with plain text only.`;
   return text.trim();
 }
 
+async function generateOptimizationSuggestionsWithGemini(metrics) {
+  if (!GEMINI_API_KEY) {
+    throw new Error('GEMINI_API_KEY is not set');
+  }
+  const { GoogleGenerativeAI } = await import('@google/generative-ai');
+  const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+
+  const prompt = `You are a transit optimization expert helping tune a campus late-night shuttle system.
+
+Based on the following campus transit performance metrics, provide actionable optimization suggestions.
+When possible, quantify the estimated improvement percentage (impactPercent) using the metrics provided.
+
+Focus areas:
+- average wait time
+- walk distance / access to stops
+- congestion at peak stops
+- operational efficiency and reliability
+
+Return ONLY a valid JSON array (no backticks, no markdown, no extra text) with the exact shape:
+[
+  {
+    "title": "Short, action-oriented recommendation",
+    "impactPercent": 11,
+    "category": "Efficiency | Walk Time | Congestion | Reliability",
+    "detail": "1–3 sentences explaining what to change and why. Mention which metric(s) it improves."
+  }
+]
+
+Rules:
+- Provide 4–8 suggestions.
+- impactPercent should be a number between 1 and 25.
+- category must be exactly one of: Efficiency, Walk Time, Congestion, Reliability.
+
+Metrics JSON:
+${JSON.stringify(metrics, null, 0)}
+`;
+
+  const result = await model.generateContent(prompt);
+  const response = await result.response;
+  const text = response.text();
+  if (!text || !text.trim()) throw new Error('Empty or invalid Gemini response');
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    throw new Error('Gemini optimization response was not valid JSON');
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error('Gemini optimization response was empty');
+  }
+  return parsed;
+}
+
 function buildFallbackComplaintsSummary(complaints) {
   if (!complaints || complaints.length === 0) {
     return 'There are currently no active complaints in the system. Continue normal operations and monitor for any new reports from drivers or riders.';
@@ -276,6 +357,7 @@ async function handleComplaintsSummary(req, body, res) {
     res.end(JSON.stringify(payload));
   } catch (err) {
     console.error('Complaints summary error:', err.message);
+    failedLlmCalls += 1;
     // Fall back to a simple server-generated summary so UI still shows something.
     const fallback = buildFallbackComplaintsSummary(complaints);
     const payload = {
@@ -285,6 +367,77 @@ async function handleComplaintsSummary(req, body, res) {
     };
     summaryCache = { ...payload, generatedAt: Date.now() };
     cacheKey = key;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(payload));
+  }
+}
+
+function buildFallbackOptimizationSuggestions(metrics) {
+  const suggestions = [];
+  const avgWait = metrics?.optimization?.avgWaitTimeMin ?? 6;
+  const avgWalk = metrics?.optimization?.avgWalkTimeMin ?? 5;
+  const expressEff = metrics?.optimization?.routeEfficiencyScore?.['P2P Express'] ?? 80;
+  const baityEff = metrics?.optimization?.routeEfficiencyScore?.['Baity Hill'] ?? 78;
+  const mostCongested = metrics?.optimization?.mostCongestedStop || 'Student Union';
+  const mostUnderutilized = metrics?.optimization?.mostUnderutilizedStop || 'Baity Hill Community';
+
+  if (avgWait > 5) {
+    suggestions.push({
+      title: 'Re-balance buses during peak union departures',
+      impactPercent: 10,
+      category: 'Efficiency',
+      detail:
+        'Shift one Baity Hill run into the highest-demand P2P Express window to cut average wait time at the Student Union by roughly 8–12%.',
+    });
+  }
+  if (avgWalk > 4) {
+    suggestions.push({
+      title: 'Add a micro-stop near central campus housing',
+      impactPercent: 9,
+      category: 'Walk Time',
+      detail:
+        'Introduce a small, signed boarding location between Rams Head and the Union to shorten walk distance for south-campus riders by about one block.',
+    });
+  }
+  suggestions.push({
+    title: 'Tighten Baity Hill schedule around late-night clinic discharge',
+    impactPercent: 7,
+    category: 'Congestion',
+    detail:
+      `Align one Baity Hill loop departure with the top-of-hour clinic release to reduce standing loads at ${mostCongested} and smooth boardings.`,
+  });
+  if (expressEff > baityEff) {
+    suggestions.push({
+      title: 'Trim low-yield Baity Hill loop beyond underutilized stop',
+      impactPercent: 5,
+      category: 'Efficiency',
+      detail:
+        `Evaluate whether the segment beyond ${mostUnderutilized} can be shortened or served every other loop to save 2–4 minutes per Baity Hill cycle.`,
+    });
+  }
+  return suggestions;
+}
+
+async function handleAdminOptimizationSummary(req, body, res) {
+  const metrics = body?.metrics ?? body ?? {};
+  try {
+    const suggestions = await generateOptimizationSuggestionsWithGemini(metrics);
+    const payload = {
+      suggestions,
+      generatedAtISO: new Date().toISOString(),
+      model: GEMINI_MODEL,
+    };
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(payload));
+  } catch (err) {
+    console.error('Admin optimization summary error:', err.message);
+    failedLlmCalls += 1;
+    const fallbackSuggestions = buildFallbackOptimizationSuggestions(metrics);
+    const payload = {
+      suggestions: fallbackSuggestions,
+      generatedAtISO: new Date().toISOString(),
+      model: 'fallback',
+    };
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(payload));
   }
@@ -319,6 +472,41 @@ const server = http.createServer((req, res) => {
   if (req.url === "/" && req.method === "GET") {
     res.writeHead(200, { "Content-Type": "text/plain" });
     res.end("P2P Live API is running. Try /healthz");
+    return;
+  }
+
+  if (req.url === '/api/admin/diagnostics' && req.method === 'GET') {
+    const mem = process.memoryUsage();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(
+      JSON.stringify({
+        env: {
+          nodeEnv: process.env.NODE_ENV || 'development',
+          mapboxTokenConfigured: !!MAPBOX_TOKEN,
+          geminiKeyConfigured: !!GEMINI_API_KEY,
+          geminiModel: GEMINI_MODEL,
+        },
+        cache: {
+          routeCacheEntries: Object.keys(routeCache || {}).length,
+          walkCacheEntries: Object.keys(walkCache || {}).length,
+        },
+        errors: {
+          failedLlmCalls,
+          directionsFailures,
+          routeDirectionsFailures,
+        },
+        memory: {
+          rssMb: Math.round(mem.rss / 1024 / 1024),
+          heapUsedMb: Math.round(mem.heapUsed / 1024 / 1024),
+          heapTotalMb: Math.round(mem.heapTotal / 1024 / 1024),
+        },
+        process: {
+          pid: process.pid,
+          uptimeSec: Math.round(process.uptime()),
+          node: process.version,
+        },
+      })
+    );
     return;
   }
 
@@ -420,6 +608,20 @@ const server = http.createServer((req, res) => {
     const arrivals = getMockArrivals(stopId.trim());
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ arrivals }));
+    return;
+  }
+  if (req.url === '/api/admin-optimization-summary' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const parsed = body ? JSON.parse(body) : {};
+        handleAdminOptimizationSummary(req, parsed, res);
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+      }
+    });
     return;
   }
   res.writeHead(404);
