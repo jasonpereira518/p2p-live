@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { OpsLayout } from '../../ops/OpsLayout';
-import { getMockAssignment } from '../../data/mockAssignments';
+import { getDriverAssignment } from '../../storage/opsAssignments';
 import {
   getDriverShifts,
   addShift,
@@ -34,7 +34,7 @@ function generateId(): string {
 export function OpsDriverPage() {
   const session = getSession();
   const driverId = session?.user.id ?? '';
-  const assignment = getMockAssignment(driverId);
+  const assignment = getDriverAssignment(driverId);
 
   const [shifts, setShifts] = useState<Shift[]>(() => getDriverShifts(driverId));
   const [clockedInShift, setClockedInShift] = useState<Shift | null>(() => {
@@ -250,7 +250,7 @@ export function OpsDriverPage() {
         {/* My Location map widget */}
         <section className="mb-6">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500 mb-2">My Location</h2>
-          <DriverLocationMap height={260} />
+          <DriverLocationMap height={260} routeName={assignment.routeName} />
         </section>
 
         {/* Shift History */}

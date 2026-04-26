@@ -6,6 +6,9 @@ import React, { useState, useMemo } from 'react';
 import { listDrivers, addDriver, updateDriver, removeDriver, getDisplayName, getAvatarUrl, type Person } from '../../ops/peopleStore';
 import { Avatar } from './Avatar';
 import { Modal } from './Modal';
+import { MOCK_FLEET_STATUS_ROWS } from '../../data/mockOps';
+import { ROUTE_CONFIGS } from '../../data/routeConfig';
+import { clearDriverAssignment, getDriverAssignment, getAllDriverAssignments, setDriverAssignment } from '../../storage/opsAssignments';
 
 const AVATAR_PRESETS = [
   'https://randomuser.me/api/portraits/men/12.jpg',
@@ -30,14 +33,18 @@ interface ManageDriversProps {
 
 export function ManageDrivers({ onDriversChange }: ManageDriversProps) {
   const [drivers, setDrivers] = useState(listDrivers());
+  const [assignments, setAssignments] = useState(() => getAllDriverAssignments());
   const [addOpen, setAddOpen] = useState(false);
   const [editDriver, setEditDriver] = useState<Person | null>(null);
   const [removeDriverId, setRemoveDriverId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [error, setError] = useState('');
+  const busOptions = useMemo(() => Array.from(new Set(MOCK_FLEET_STATUS_ROWS.map((row) => row.busId))).sort(), []);
+  const routeOptions = useMemo(() => ROUTE_CONFIGS.map((route) => route.routeName), []);
 
   const refresh = () => {
     setDrivers(listDrivers());
+    setAssignments(getAllDriverAssignments());
     onDriversChange?.();
   };
 
@@ -93,7 +100,25 @@ export function ManageDrivers({ onDriversChange }: ManageDriversProps) {
 
   const handleRemoveConfirm = (id: string) => {
     removeDriver(id);
+    clearDriverAssignment(id);
     setRemoveDriverId(null);
+    refresh();
+  };
+
+  const handleAssignmentDraftChange = (
+    driverId: string,
+    patch: Partial<{ routeName: string; busId: string }>
+  ) => {
+    const current = assignments[driverId] ?? getDriverAssignment(driverId);
+    setAssignments((prev) => ({
+      ...prev,
+      [driverId]: { ...current, ...patch },
+    }));
+  };
+
+  const handleSaveAssignment = (driverId: string) => {
+    const next = assignments[driverId] ?? getDriverAssignment(driverId);
+    setDriverAssignment(driverId, next);
     refresh();
   };
 
@@ -115,37 +140,75 @@ export function ManageDrivers({ onDriversChange }: ManageDriversProps) {
             <tr className="border-b border-gray-100 bg-gray-50/50">
               <th className="text-left py-3 px-4 font-semibold text-gray-700">Driver</th>
               <th className="text-left py-3 px-4 font-semibold text-gray-700">Email</th>
+              <th className="text-left py-3 px-4 font-semibold text-gray-700">Route</th>
+              <th className="text-left py-3 px-4 font-semibold text-gray-700">Bus</th>
               <th className="text-right py-3 px-4 font-semibold text-gray-700">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {drivers.map((d) => (
-              <tr key={d.id} className="border-b border-gray-50">
-                <td className="py-3 px-4">
-                  <div className="flex items-center gap-2">
-                    <Avatar src={getAvatarUrl(d)} alt={getDisplayName(d)} name={d.fullName} size="sm" />
-                    <span className="font-medium text-gray-900">{getDisplayName(d)}</span>
-                  </div>
-                </td>
-                <td className="py-3 px-4 text-gray-600">{d.email}</td>
-                <td className="py-3 px-4 text-right">
-                  <button
-                    type="button"
-                    onClick={() => handleEditOpen(d)}
-                    className="px-2 py-1 rounded text-p2p-blue hover:bg-p2p-light-blue/50 text-xs font-medium"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRemoveDriverId(d.id)}
-                    className="ml-2 px-2 py-1 rounded text-p2p-red hover:bg-p2p-light-red/30 text-xs font-medium"
-                  >
-                    Remove
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {drivers.map((d) => {
+              const assignment = assignments[d.id] ?? getDriverAssignment(d.id);
+              return (
+                <tr key={d.id} className="border-b border-gray-50">
+                  <td className="py-3 px-4">
+                    <div className="flex items-center gap-2">
+                      <Avatar src={getAvatarUrl(d)} alt={getDisplayName(d)} name={d.fullName} size="sm" />
+                      <span className="font-medium text-gray-900">{getDisplayName(d)}</span>
+                    </div>
+                  </td>
+                  <td className="py-3 px-4 text-gray-600">{d.email}</td>
+                  <td className="py-3 px-4">
+                    <select
+                      value={assignment.routeName}
+                      onChange={(e) => handleAssignmentDraftChange(d.id, { routeName: e.target.value })}
+                      className="w-full min-w-[150px] px-2 py-1.5 rounded-lg border border-gray-200 text-sm focus:border-p2p-blue focus:ring-1 focus:ring-p2p-blue outline-none"
+                    >
+                      {routeOptions.map((routeName) => (
+                        <option key={routeName} value={routeName}>
+                          {routeName}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="py-3 px-4">
+                    <select
+                      value={assignment.busId}
+                      onChange={(e) => handleAssignmentDraftChange(d.id, { busId: e.target.value })}
+                      className="w-full min-w-[120px] px-2 py-1.5 rounded-lg border border-gray-200 text-sm focus:border-p2p-blue focus:ring-1 focus:ring-p2p-blue outline-none"
+                    >
+                      {busOptions.map((busId) => (
+                        <option key={busId} value={busId}>
+                          {busId}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="py-3 px-4 text-right whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => handleSaveAssignment(d.id)}
+                      className="px-2 py-1 rounded text-emerald-700 hover:bg-emerald-50 text-xs font-medium"
+                    >
+                      Save Assignment
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleEditOpen(d)}
+                      className="ml-2 px-2 py-1 rounded text-p2p-blue hover:bg-p2p-light-blue/50 text-xs font-medium"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRemoveDriverId(d.id)}
+                      className="ml-2 px-2 py-1 rounded text-p2p-red hover:bg-p2p-light-red/30 text-xs font-medium"
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

@@ -4,24 +4,36 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
-import type { Map as MapboxMapType, GeoJSONSource } from 'mapbox-gl';
+import type { Map as MapboxMapType } from 'mapbox-gl';
+import { ROUTE_CONFIGS } from '../../data/routeConfig';
 
 const DEFAULT_CENTER: [number, number] = [-79.0478, 35.9105];
 const DRIVER_SOURCE = 'driver-location-source';
 const DRIVER_LAYER = 'driver-location-layer';
+const DRIVER_ROUTE_SOURCE = 'driver-route-source';
+const DRIVER_ROUTE_LAYER = 'driver-route-layer';
 
 const token = typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_MAPBOX_TOKEN;
 
 interface DriverLocationMapProps {
   className?: string;
   height?: number;
+  routeName?: string;
 }
 
-export function DriverLocationMap({ className = '', height = 240 }: DriverLocationMapProps) {
+export function DriverLocationMap({ className = '', height = 240, routeName }: DriverLocationMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapboxMapType | null>(null);
   const [position, setPosition] = useState<{ lat: number; lon: number } | null>(null);
   const [loading, setLoading] = useState(true);
+  const matchedRoute = routeName
+    ? ROUTE_CONFIGS.find((route) => route.routeName.toLowerCase() === routeName.toLowerCase())
+    : null;
+  const routeCoords = matchedRoute?.stops
+    .slice()
+    .sort((a, b) => a.index - b.index)
+    .map((stop) => stop.coord) ?? [];
+  const routeGeometryKey = routeCoords.map(([lng, lat]) => `${lng},${lat}`).join('|');
 
   useEffect(() => {
     if (!('geolocation' in navigator)) {
@@ -53,6 +65,37 @@ export function DriverLocationMap({ className = '', height = 240 }: DriverLocati
     });
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
     map.on('load', () => {
+      if (routeCoords.length > 1) {
+        const routeLineCoords = [...routeCoords, routeCoords[0]];
+        map.addSource(DRIVER_ROUTE_SOURCE, {
+          type: 'geojson',
+          data: {
+            type: 'FeatureCollection',
+            features: [
+              {
+                type: 'Feature',
+                geometry: { type: 'LineString', coordinates: routeLineCoords },
+                properties: {},
+              },
+            ],
+          },
+        });
+        map.addLayer({
+          id: DRIVER_ROUTE_LAYER,
+          type: 'line',
+          source: DRIVER_ROUTE_SOURCE,
+          layout: {
+            'line-cap': 'round',
+            'line-join': 'round',
+          },
+          paint: {
+            'line-color': matchedRoute?.routeColor ?? '#418FC5',
+            'line-width': 4,
+            'line-opacity': 0.85,
+          },
+        });
+      }
+
       map.addSource(DRIVER_SOURCE, {
         type: 'geojson',
         data: {
@@ -77,13 +120,20 @@ export function DriverLocationMap({ className = '', height = 240 }: DriverLocati
           'circle-stroke-color': '#fff',
         },
       });
+
+      if (routeCoords.length > 0) {
+        const bounds = new mapboxgl.LngLatBounds();
+        routeCoords.forEach(([lng, lat]) => bounds.extend([lng, lat]));
+        bounds.extend([position.lon, position.lat]);
+        map.fitBounds(bounds, { padding: 36, duration: 800, maxZoom: 15.5 });
+      }
     });
     mapRef.current = map;
     return () => {
       map.remove();
       mapRef.current = null;
     };
-  }, [token, position?.lat, position?.lon]);
+  }, [token, position?.lat, position?.lon, routeGeometryKey, matchedRoute?.routeColor]);
 
   if (!token) {
     return (

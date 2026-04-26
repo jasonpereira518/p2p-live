@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { Search, MapPin, ArrowRight, Bus, User, Navigation, History, X, Pencil, ArrowUpDown } from 'lucide-react';
+import { Search, MapPin, ArrowRight, Bus, User, Navigation, History, X, Pencil, ArrowUpDown, Heart } from 'lucide-react';
 import { Destination, Journey, Coordinate } from '../types';
 import { MOCK_DESTINATIONS } from '../data/mockTransit';
 import { POPULAR_LOCATIONS } from '../data/popularLocations';
 import { TOP_LOCATIONS, topLocationToDestination } from '../data/topLocations';
 import { getRecentSearches, addRecentSearch, clearRecentSearches, type RecentSearchItem } from '../storage/recentSearches';
+import { getSavedRoutes, recordRouteUsage, toggleSavedRouteFavorite, type SavedRouteItem } from '../storage/savedRoutes';
 import { computeMultimodalRoute } from '../utils/multimodalRouting';
 import { formatDuration, formatDistanceImperial, formatETA } from '../utils/format';
 import { ROUTE_CONFIGS } from '../data/routeConfig';
@@ -56,6 +57,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
   const [fromQuery, setFromQuery] = useState('');
   const [fromSearchFocused, setFromSearchFocused] = useState(false);
   const [recentSearches, setRecentSearches] = useState<RecentSearchItem[]>(() => getRecentSearches());
+  const [savedRoutes, setSavedRoutes] = useState<SavedRouteItem[]>(() => getSavedRoutes());
   const [journey, setJourney] = useState<Journey | null>(existingJourney);
   const [routingLoading, setRoutingLoading] = useState(false);
   const [addressResults, setAddressResults] = useState<GeocodeResult[]>([]);
@@ -130,6 +132,9 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
   const refreshRecent = useCallback(() => {
     setRecentSearches(getRecentSearches());
   }, []);
+  const refreshSavedRoutes = useCallback(() => {
+    setSavedRoutes(getSavedRoutes());
+  }, []);
 
   const handleSelectDestination = useCallback(
     async (dest: Destination) => {
@@ -146,6 +151,18 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
         });
         setJourney(newJourney);
         onPlanRoute(newJourney);
+        recordRouteUsage({
+          fromName: fromLocation === 'current' ? 'Current Location' : fromLocation.name,
+          fromLat: origin.lat,
+          fromLon: origin.lon,
+          fromIsCurrent: fromLocation === 'current',
+          toName: dest.name,
+          toAddress: dest.address,
+          toLat: dest.lat,
+          toLon: dest.lon,
+          routeLabel: newJourney.segments.find((s) => s.type === 'bus')?.routeName,
+        });
+        refreshSavedRoutes();
       } catch (e) {
         console.error(e);
         alert('Could not calculate route');
@@ -153,7 +170,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
         setRoutingLoading(false);
       }
     },
-    [origin, onPlanRoute, refreshRecent]
+    [origin, onPlanRoute, refreshRecent, fromLocation, refreshSavedRoutes]
   );
 
   const handleSelectAddressResult = useCallback(
@@ -195,6 +212,18 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
         });
         setJourney(newJourney);
         onPlanRoute(newJourney);
+        recordRouteUsage({
+          fromName: fromLocation === 'current' ? 'Current Location' : fromLocation.name,
+          fromLat: origin.lat,
+          fromLon: origin.lon,
+          fromIsCurrent: fromLocation === 'current',
+          toName: dest.name,
+          toAddress: dest.address,
+          toLat: dest.lat,
+          toLon: dest.lon,
+          routeLabel: newJourney.segments.find((s) => s.type === 'bus')?.routeName,
+        });
+        refreshSavedRoutes();
       } catch (e) {
         console.error(e);
         alert('Could not calculate route');
@@ -202,7 +231,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
         setRoutingLoading(false);
       }
     },
-    [origin, onPlanRoute, refreshRecent]
+    [origin, onPlanRoute, refreshRecent, fromLocation, refreshSavedRoutes]
   );
 
   const handleClearRecent = useCallback(() => {
@@ -283,13 +312,97 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
       const newJourney = await computeMultimodalRoute({ origin, destination: toDestination });
       setJourney(newJourney);
       onPlanRoute(newJourney);
+      recordRouteUsage({
+        fromName: fromLocation === 'current' ? 'Current Location' : fromLocation.name,
+        fromLat: origin.lat,
+        fromLon: origin.lon,
+        fromIsCurrent: fromLocation === 'current',
+        toName: toDestination.name,
+        toAddress: toDestination.address,
+        toLat: toDestination.lat,
+        toLon: toDestination.lon,
+        routeLabel: newJourney.segments.find((s) => s.type === 'bus')?.routeName,
+      });
+      refreshSavedRoutes();
     } catch (e) {
       console.error(e);
       alert('Could not calculate route');
     } finally {
       setRoutingLoading(false);
     }
-  }, [origin, toDestination, onPlanRoute]);
+  }, [origin, toDestination, onPlanRoute, fromLocation, refreshSavedRoutes]);
+
+  const handleRunSavedRoute = useCallback(
+    async (item: SavedRouteItem) => {
+      const destination: Destination = {
+        id: `saved-route-dest-${item.id}`,
+        name: item.toName,
+        address: item.toAddress,
+        lat: item.toLat,
+        lon: item.toLon,
+      };
+      const start: TripEnd = item.fromIsCurrent
+        ? 'current'
+        : {
+            id: `saved-route-from-${item.id}`,
+            name: item.fromName,
+            lat: item.fromLat,
+            lon: item.fromLon,
+          };
+      const routeOrigin: Coordinate = item.fromIsCurrent
+        ? userLocation
+        : { lat: item.fromLat, lon: item.fromLon };
+
+      setFromLocation(start);
+      setFromQuery(item.fromIsCurrent ? '' : item.fromName);
+      setToDestination(destination);
+      setQuery(destination.name);
+      setSearchFocused(false);
+      setFromSearchFocused(false);
+      addRecentSearch({
+        label: destination.name,
+        address: destination.address,
+        lat: destination.lat,
+        lon: destination.lon,
+      });
+      refreshRecent();
+      setRoutingLoading(true);
+      try {
+        const newJourney = await computeMultimodalRoute({
+          origin: routeOrigin,
+          destination,
+        });
+        setJourney(newJourney);
+        onPlanRoute(newJourney);
+        recordRouteUsage({
+          fromName: item.fromIsCurrent ? 'Current Location' : item.fromName,
+          fromLat: routeOrigin.lat,
+          fromLon: routeOrigin.lon,
+          fromIsCurrent: item.fromIsCurrent,
+          toName: destination.name,
+          toAddress: destination.address,
+          toLat: destination.lat,
+          toLon: destination.lon,
+          routeLabel: newJourney.segments.find((s) => s.type === 'bus')?.routeName,
+        });
+        refreshSavedRoutes();
+      } catch (e) {
+        console.error(e);
+        alert('Could not calculate route');
+      } finally {
+        setRoutingLoading(false);
+      }
+    },
+    [onPlanRoute, refreshRecent, refreshSavedRoutes, userLocation]
+  );
+
+  const handleToggleFavoriteRoute = useCallback(
+    (routeId: string) => {
+      toggleSavedRouteFavorite(routeId);
+      refreshSavedRoutes();
+    },
+    [refreshSavedRoutes]
+  );
 
   type SelectableEntry =
     | { type: 'top'; dest: Destination }
@@ -1073,6 +1186,49 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
                   </li>
                 ))}
               </ul>
+            </div>
+          </div>
+        )}
+        {showDropdownUnfocused && (
+          <div className="mt-4 sm:mt-5 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="p-4">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Recent & Favorite Routes</h3>
+              </div>
+              {savedRoutes.length > 0 ? (
+                <ul className="space-y-1">
+                  {savedRoutes.slice(0, 6).map((item) => (
+                    <li key={item.id}>
+                      <div className="w-full px-3 py-2.5 rounded-lg flex items-center gap-2 hover:bg-gray-50">
+                        <button
+                          type="button"
+                          onClick={() => handleRunSavedRoute(item)}
+                          className="flex-1 min-w-0 text-left"
+                        >
+                          <div className="font-medium text-gray-900 truncate">
+                            {item.fromName} <ArrowRight size={14} className="inline mx-1 text-gray-400" /> {item.toName}
+                          </div>
+                          <div className="text-xs text-gray-500 truncate">
+                            {item.lastRouteLabel ? `Via ${item.lastRouteLabel}` : 'Walk + transit options'} · Used {item.useCount}x
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleFavoriteRoute(item.id)}
+                          className={`p-2 rounded-lg transition-colors ${
+                            item.favorite ? 'text-p2p-red bg-p2p-light-red/30' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+                          }`}
+                          aria-label={item.favorite ? 'Remove from favorite routes' : 'Add to favorite routes'}
+                        >
+                          <Heart size={16} fill={item.favorite ? 'currentColor' : 'none'} />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-gray-400">Plan a route to start building your recent and favorite routes.</p>
+              )}
             </div>
           </div>
         )}
