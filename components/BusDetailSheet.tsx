@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo } from 'react';
 import { Vehicle, Stop, Coordinate } from '../types';
 import { X, MapPin, Navigation } from 'lucide-react';
+import { ROUTE_CONFIGS } from '../data/routeConfig';
 
 function getMockFullnessPercent(vehicle: Vehicle): number {
   const key = `${vehicle.id}-${vehicle.nextStopEtaMin}`;
@@ -54,6 +55,14 @@ export const BusDetailSheet: React.FC<BusDetailSheetProps> = ({ vehicle, stops, 
 
   const getStopName = (id: string) => stops.find(s => s.id === id)?.name || id;
   const getStopObj = (id: string) => stops.find(s => s.id === id);
+  const routeConfig = ROUTE_CONFIGS.find((r) => r.routeName.toLowerCase() === vehicle.routeName.toLowerCase());
+  const orderedRouteStopIds = routeConfig?.stops.map((s) => s.id) ?? [];
+
+  const getPreviousStopIdFromRoute = (stopId: string): string | null => {
+    const idx = orderedRouteStopIds.indexOf(stopId);
+    if (idx === -1 || orderedRouteStopIds.length < 2) return null;
+    return orderedRouteStopIds[(idx - 1 + orderedRouteStopIds.length) % orderedRouteStopIds.length];
+  };
 
   const nextStop = getStopObj(vehicle.nextStopId);
   
@@ -66,6 +75,24 @@ export const BusDetailSheet: React.FC<BusDetailSheetProps> = ({ vehicle, stops, 
 
   const fullnessPercent = getMockFullnessPercent(vehicle);
   const fullnessMeta = getFullnessMeta(fullnessPercent);
+  const upcomingWithPrevious = useMemo(
+    () =>
+      vehicle.upcomingStops.map((stop, idx) => {
+        const previousStopId =
+          idx === 0 ? getPreviousStopIdFromRoute(stop.stopId) : vehicle.upcomingStops[idx - 1]?.stopId ?? null;
+        const previousStopName = previousStopId ? getStopName(previousStopId) : null;
+        const minutesFromPrevious =
+          idx === 0
+            ? Math.max(1, vehicle.nextStopEtaMin)
+            : Math.max(1, stop.etaMin - (vehicle.upcomingStops[idx - 1]?.etaMin ?? stop.etaMin));
+        return {
+          ...stop,
+          previousStopName,
+          minutesFromPrevious,
+        };
+      }),
+    [vehicle.upcomingStops, vehicle.nextStopEtaMin, routeConfig]
+  );
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -166,13 +193,22 @@ export const BusDetailSheet: React.FC<BusDetailSheetProps> = ({ vehicle, stops, 
           <div>
             <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">Upcoming Stops</h3>
             <div className="relative pl-2 space-y-6 before:content-[''] before:absolute before:left-[19px] before:top-2 before:bottom-4 before:w-0.5 before:bg-gray-200">
-              {vehicle.upcomingStops.map((stop, idx) => (
+              {upcomingWithPrevious.map((stop, idx) => (
                 <div key={`${stop.stopId}-${idx}`} className="relative flex items-center justify-between pl-8 group">
                   <div className={`absolute left-3 w-4 h-4 rounded-full border-2 border-white shadow-sm z-10 ${idx === 0 ? 'bg-p2p-blue' : 'bg-gray-300'}`} />
-                  <span className={`text-sm font-medium ${idx === 0 ? 'text-gray-900' : 'text-gray-600'}`}>
-                    {getStopName(stop.stopId)}
-                  </span>
-                  <span className={`text-sm font-bold ${idx === 0 ? 'text-gray-900' : 'text-gray-400'}`}>
+                  <div className="min-w-0 flex-1 pr-2">
+                    <span className={`block text-sm font-medium truncate ${idx === 0 ? 'text-gray-900' : 'text-gray-600'}`}>
+                      {getStopName(stop.stopId)}
+                    </span>
+                    {stop.previousStopName && (
+                      <span className="block text-xs text-gray-400 truncate">
+                        {idx === 0
+                          ? `Bus was at ${stop.previousStopName} about ${stop.minutesFromPrevious} min ago`
+                          : `Previous stop: ${stop.previousStopName} (${stop.minutesFromPrevious} min earlier)`}
+                      </span>
+                    )}
+                  </div>
+                  <span className={`text-sm font-bold whitespace-nowrap ${idx === 0 ? 'text-gray-900' : 'text-gray-400'}`}>
                     {stop.etaMin} min
                   </span>
                 </div>

@@ -14,6 +14,11 @@ export const BusList: React.FC<BusListProps> = ({ vehicles, stops, onSelectBus }
   return (
     <div className="px-4 pb-24 pt-2">
       <div className="space-y-3">
+        {vehicles.length === 0 && (
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 text-sm text-gray-500">
+            No buses currently running
+          </div>
+        )}
         {vehicles.map((bus) => (
             <button
               key={bus.id}

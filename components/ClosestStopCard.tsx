@@ -3,6 +3,7 @@ import { Stop, Vehicle, Coordinate } from '../types';
 import { getDistanceMeters, getWalkTimeMinutes } from '../utils/geo';
 import { ROUTE_CONFIGS } from '../data/routeConfig';
 import { Navigation, Clock } from 'lucide-react';
+import { getServiceResumeLabel, getUpcomingRouteArrivals, isRouteOperatingNow } from '../utils/serviceSchedule';
 
 interface ClosestStopCardProps {
   stop: Stop;
@@ -35,43 +36,25 @@ export const ClosestStopCard: React.FC<ClosestStopCardProps> = ({ stop, userLoca
     const servingRoutes = ROUTE_CONFIGS.filter((route) =>
       route.stops.some((rs) => rs.id === stop.id)
     );
-    if (servingRoutes.length === 0) {
+    const activeServingRoutes = servingRoutes.filter((route) => isRouteOperatingNow(route.routeId));
+    if (activeServingRoutes.length === 0) {
       return [] as { routeName: string; minutes: number; color: string }[];
     }
 
-    // Simple deterministic-ish RNG based on stop id and vehicle count
-    const rng = (salt: number) => {
-      const key = `${stop.id}-${vehicles.length}-${salt}`;
-      let hash = 0;
-      for (let i = 0; i < key.length; i++) {
-        hash = (hash * 31 + key.charCodeAt(i)) | 0;
-      }
-      const base = (Math.abs(hash) % 1000) / 1000;
-      return base; // 0..1
-    };
-
-    const primaryRoute =
-      servingRoutes[Math.floor(rng(1) * servingRoutes.length) % servingRoutes.length];
-    const firstMinutes = 2 + Math.floor(rng(2) * 11); // 2–12
-
-    const arrivals: { routeName: string; minutes: number; color: string }[] = [
-      { routeName: primaryRoute.routeName, minutes: firstMinutes, color: primaryRoute.routeColor },
-    ];
-
-    // Optional second arrival 10–18 minutes after the first
-    if (rng(3) > 0.4) {
-      const secondRoute =
-        servingRoutes[Math.floor(rng(4) * servingRoutes.length) % servingRoutes.length];
-      const secondMinutes = firstMinutes + 10 + Math.floor(rng(5) * 9); // +10–18
-      arrivals.push({
-        routeName: secondRoute.routeName,
-        minutes: secondMinutes,
-        color: secondRoute.routeColor,
-      });
-    }
+    const arrivals = activeServingRoutes
+      .flatMap((route) =>
+        getUpcomingRouteArrivals(route.routeId, new Date(), 2).map((minutes) => ({
+          routeName: route.routeName,
+          minutes,
+          color: route.routeColor,
+        }))
+      )
+      .sort((a, b) => a.minutes - b.minutes)
+      .slice(0, 3)
+      .map(({ routeName, minutes, color }) => ({ routeName, minutes, color }));
 
     return arrivals;
-  }, [stop.id, vehicles.length]);
+  }, [stop.id]);
 
   return (
     <div className="mt-3 bg-white rounded-xl shadow-sm border border-gray-100 p-4">
@@ -125,7 +108,7 @@ export const ClosestStopCard: React.FC<ClosestStopCardProps> = ({ stop, userLoca
             })}
           </div>
         ) : (
-          <span className="text-sm text-gray-400 italic">No scheduled arrivals soon</span>
+          <span className="text-sm text-gray-500 italic">Service resumes at {getServiceResumeLabel()}</span>
         )}
       </div>
     </div>

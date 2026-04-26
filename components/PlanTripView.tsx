@@ -10,6 +10,7 @@ import { computeMultimodalRoute } from '../utils/multimodalRouting';
 import { formatDuration, formatDistanceImperial, formatETA } from '../utils/format';
 import { ROUTE_CONFIGS } from '../data/routeConfig';
 import { API } from '../utils/api';
+import { isRouteOperatingNow } from '../utils/serviceSchedule';
 
 const TOP_DESTINATIONS: Destination[] = TOP_LOCATIONS.map(topLocationToDestination);
 
@@ -70,6 +71,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
     ? userLocation
     : { lat: fromLocation.lat, lon: fromLocation.lon };
   const activeQuery = expandedSearch && fromSearchFocused ? fromQuery : query;
+  const anyRouteInService = ROUTE_CONFIGS.some((route) => isRouteOperatingNow(route.routeId));
 
   const stopNameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -592,7 +594,9 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
                   Via {journey.segments.find((s) => s.type === 'bus')?.routeName ?? 'bus'}
                 </div>
               ) : (
-                <div className="text-xs text-gray-500 mb-2">Walk only (faster than bus)</div>
+                <div className="text-xs text-gray-500 mb-2">
+                  {anyRouteInService ? 'Walk only (faster than bus)' : 'This route is not currently operating'}
+                </div>
               )}
               <div className="text-xs text-gray-500 mb-4">
               {journey.segments.length === 1 ? (
@@ -704,9 +708,9 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
                   </div>
                 ) : (
                   <div className="text-[11px] md:text-xs text-gray-800">
-                    <span className="font-semibold">Walking only</span>
+                    <span className="font-semibold">{anyRouteInService ? 'Walking only' : 'Transit unavailable now'}</span>
                     <div className="text-[10px] text-gray-600">
-                      No bus timing needed for this trip.
+                      {anyRouteInService ? 'No bus timing needed for this trip.' : 'This route is not currently operating.'}
                     </div>
                   </div>
                 )}

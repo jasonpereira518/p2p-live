@@ -10,6 +10,7 @@ import { MapView } from './components/MapView';
 import { PlanTripView } from './components/PlanTripView';
 import { AppHeader } from './components/AppHeader';
 import { RefreshCw, X } from 'lucide-react';
+import { isRouteOperatingNow } from './utils/serviceSchedule';
 
 // Default to UNC Student Union if geo denied
 const DEFAULT_LOCATION: Coordinate = { lat: 35.9105, lon: -79.0478 };
@@ -29,6 +30,7 @@ function App() {
   const [vehicles, setVehicles] = useState<Vehicle[]>(VEHICLES);
   const [refreshLoading, setRefreshLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const [clockTickMs, setClockTickMs] = useState(() => Date.now());
 
   // Geolocation Setup
   useEffect(() => {
@@ -50,6 +52,11 @@ function App() {
     } else {
       setLoadingLoc(false);
     }
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockTickMs(Date.now()), 60000);
+    return () => window.clearInterval(timer);
   }, []);
 
   // Distance warning dismissal persistence (session-scoped)
@@ -77,6 +84,10 @@ function App() {
 
   // Derived State
   const closestStop = useMemo(() => findNearestStop(userLocation, STOPS), [userLocation]);
+  const activeVehicles = useMemo(
+    () => vehicles.filter((v) => isRouteOperatingNow(v.routeId, new Date(clockTickMs))),
+    [vehicles, clockTickMs]
+  );
 
   const handlePlanRoute = (journey: Journey) => {
     setActiveJourney(journey);
@@ -162,7 +173,7 @@ function App() {
                 <ClosestStopCard 
                   stop={closestStop} 
                   userLocation={userLocation} 
-                  vehicles={vehicles}
+                  vehicles={activeVehicles}
                 />
               </div>
             )}
@@ -188,7 +199,7 @@ function App() {
               </button>
             </div>
             <BusList 
-              vehicles={vehicles} 
+              vehicles={activeVehicles} 
               stops={STOPS} 
               onSelectBus={(bus) => setSelectedBus(bus)}
             />
@@ -213,7 +224,7 @@ function App() {
           <div className="h-full w-full relative">
             <MapView 
               stops={STOPS}
-              vehicles={vehicles}
+              vehicles={activeVehicles}
               userLocation={userLocation}
               userLocationResolved={!loadingLoc}
               centerOnCampusAt={centerOnCampusAt}

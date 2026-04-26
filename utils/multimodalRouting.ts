@@ -9,6 +9,7 @@ import { findKNearestStops } from './geo';
 import { ROUTE_CONFIGS, type RouteConfig, type RouteStopConfig } from '../data/routeConfig';
 import { createRouteInterpolator, haversineMeters, projectPointToRoute, sliceRouteByDistance } from './routeInterpolation';
 import type { LngLat } from './routeInterpolation';
+import { getUpcomingRouteArrivals, isRouteOperatingNow } from './serviceSchedule';
 
 const BASE = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_OPS_API_URL) || '';
 const K_NEAREST = 6;
@@ -161,8 +162,10 @@ export async function computeMultimodalRoute(input: MultimodalInput): Promise<Jo
   }
 
   for (const config of ROUTE_CONFIGS) {
+    if (!isRouteOperatingNow(config.routeId, now)) continue;
     const routeCoords = routeGeometries[config.routeId];
     if (!routeCoords) continue;
+    const currentRouteWaitMin = getUpcomingRouteArrivals(config.routeId, now, 1)[0] ?? 0;
 
     const stopsAsStop = config.stops.map((s) => ({
       id: s.id,
@@ -233,7 +236,7 @@ export async function computeMultimodalRoute(input: MultimodalInput): Promise<Jo
           );
         }
 
-        const totalSec = board.durationSec + busDurationSec + alight.durationSec;
+        const totalSec = board.durationSec + currentRouteWaitMin * 60 + busDurationSec + alight.durationSec;
         if (totalSec >= bestTotalSec) continue;
 
         const walkToBoard = await getWalkDirections(origin, { lat: board.stop.coord[1], lon: board.stop.coord[0] });
@@ -270,7 +273,7 @@ export async function computeMultimodalRoute(input: MultimodalInput): Promise<Jo
             routeId: config.routeId.toLowerCase().replace('_', '-'),
             routeName: config.routeName,
             stopsCount: forwardStops.length,
-            waitTimeMin: 0,
+            waitTimeMin: currentRouteWaitMin,
             busSegmentGeometry: { type: 'LineString', coordinates: busGeometry },
             busOrderedStopIds: forwardStops.map((s) => s.id),
           },

@@ -9,22 +9,7 @@ import type { Stop, Coordinate, Journey } from '../types';
 import { getRoutesServedForStop } from '../data/p2pStops';
 import { getWalkDirections } from '../utils/multimodalRouting';
 import { getDistanceMeters, getWalkTimeMinutes } from '../utils/geo';
-import { API } from '../utils/api';
-
-function getFallbackArrivals(stopId: string): ArrivalItem[] {
-  const hash = (s: string) => {
-    let h = 0;
-    for (let i = 0; i < s.length; i++) h = ((h << 5) - h) + s.charCodeAt(i) | 0;
-    return Math.abs(h);
-  };
-  const seed = hash(stopId);
-  const routes = ['P2P Express', 'Baity Hill'];
-  return [
-    { routeName: routes[seed % 2], etaMin: 2 + (seed % 4) },
-    { routeName: routes[(seed + 1) % 2], etaMin: 6 + (seed % 5) },
-    { routeName: routes[seed % 2], etaMin: 12 + (seed % 4) },
-  ].sort((a, b) => a.etaMin - b.etaMin);
-}
+import { getUpcomingRouteArrivals, isRouteOperatingNow } from '../utils/serviceSchedule';
 
 export interface ArrivalItem {
   routeName: string;
@@ -57,28 +42,18 @@ export function StopPopup({
   const routesServed = getRoutesServedForStop(stop);
 
   useEffect(() => {
-    let cancelled = false;
     setArrivalsLoading(true);
     setArrivalsError(false);
-    const url = `${API}/api/arrivals?stopId=${encodeURIComponent(stop.id)}`;
-    fetch(url)
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(res.statusText))))
-      .then((data) => {
-        if (cancelled) return;
-        const list = Array.isArray(data?.arrivals) ? data.arrivals : [];
-        setArrivals(list.length > 0 ? list : getFallbackArrivals(stop.id));
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setArrivalsError(true);
-          setArrivals(getFallbackArrivals(stop.id));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setArrivalsLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [stop.id]);
+    const next = routesServed
+      .filter((name) => isRouteOperatingNow(name))
+      .flatMap((routeName) =>
+        getUpcomingRouteArrivals(routeName, new Date(), 3).map((etaMin) => ({ routeName, etaMin }))
+      )
+      .sort((a, b) => a.etaMin - b.etaMin)
+      .slice(0, 5);
+    setArrivals(next);
+    setArrivalsLoading(false);
+  }, [routesServed]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -174,21 +149,7 @@ export function StopPopup({
               ))}
             </div>
           ) : arrivalsError ? (
-            <>
-              <p className="text-sm text-amber-700">Could not load arrivals. Showing sample times.</p>
-              {arrivals && arrivals.length > 0 ? (
-                <ul className="mt-2 space-y-1">
-                  {arrivals.slice(0, 5).map((a, i) => (
-                    <li key={i} className="text-sm text-gray-700 flex justify-between">
-                      <span>{a.routeName}</span>
-                      <span>{a.etaMin} min</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-sm text-gray-500 mt-1">No arrivals soon. Try refreshing.</p>
-              )}
-            </>
+            <p className="text-sm text-amber-700">Could not load arrivals.</p>
           ) : arrivals && arrivals.length > 0 ? (
             <ul className="space-y-1">
               {arrivals.slice(0, 5).map((a, i) => (
@@ -199,7 +160,7 @@ export function StopPopup({
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-gray-500">No arrivals soon. Try refreshing.</p>
+            <p className="text-sm text-gray-500">No buses currently running</p>
           )}
         </section>
 
