@@ -10,11 +10,15 @@ if (process.env.NODE_ENV !== "production") {
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
+const { createGmvClient } = require('./gmv/client.cjs');
+const { createGmvService } = require('./gmv/service.cjs');
 
 const PORT = process.env.PORT || process.env.OPS_API_PORT || 3001;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
 const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN;
+const GMV_RTPI_API_KEY = process.env.GMV_RTPI_API_KEY;
+const gmv = createGmvService({ client: createGmvClient({ apiKey: GMV_RTPI_API_KEY }) });
 const CACHE_TTL_MS = 60 * 1000; // 60 seconds
 const ROUTE_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const WALK_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
@@ -475,6 +479,38 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  const pathname = (req.url || '').split('?')[0];
+
+  if (pathname === '/api/live/network' && req.method === 'GET') {
+    gmv
+      .getNetwork()
+      .then((network) => {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' });
+        res.end(JSON.stringify(network));
+      })
+      .catch((err) => {
+        console.error('GMV network error:', err.message);
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Transit network unavailable' }));
+      });
+    return;
+  }
+
+  if (pathname === '/api/live/snapshot' && req.method === 'GET') {
+    gmv
+      .getSnapshot()
+      .then((snapshot) => {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify(snapshot));
+      })
+      .catch((err) => {
+        console.error('GMV snapshot error:', err.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Snapshot failed' }));
+      });
+    return;
+  }
+
   if (req.url === '/api/admin/diagnostics' && req.method === 'GET') {
     const mem = process.memoryUsage();
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -485,7 +521,9 @@ const server = http.createServer((req, res) => {
           mapboxTokenConfigured: !!MAPBOX_TOKEN,
           geminiKeyConfigured: !!GEMINI_API_KEY,
           geminiModel: GEMINI_MODEL,
+          gmvKeyConfigured: !!GMV_RTPI_API_KEY,
         },
+        gmv: gmv.diagnostics(),
         cache: {
           routeCacheEntries: Object.keys(routeCache || {}).length,
           walkCacheEntries: Object.keys(walkCache || {}).length,
@@ -634,6 +672,9 @@ server.listen(PORT, "0.0.0.0", () => {
   }
   if (!MAPBOX_TOKEN) {
     console.warn('Warning: MAPBOX_TOKEN not set. /api/mapbox/route will return 500.');
+  }
+  if (!GMV_RTPI_API_KEY) {
+    console.warn('Warning: GMV_RTPI_API_KEY not set. /api/live/* will report status "unavailable".');
   }
   console.log(`API server listening on port ${PORT}`);
 });
