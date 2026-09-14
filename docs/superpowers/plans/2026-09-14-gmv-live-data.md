@@ -21,7 +21,7 @@
 - App brand route colors stay `#418FC5` (P2P Express) and `#C33934` (Baity Hill).
 - No new runtime dependencies. The only new dev dependency is `vitest@^3.2.7`.
 - Commit messages end with `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
-- **Type-check baseline:** after Task 1, `npm run typecheck` reports exactly these pre-existing errors, which are out of scope: `components/mapboxBuses3DLayer.ts` (2, missing `three`), `ops/ErrorBoundary.tsx` (6), `pages/ops/OpsManagerPage.tsx` (3, at the DriverSessionRow / ComplaintCard / ManageDrivers props), and `components/StopPopup.tsx` (1, `LineStringGeometry`; fixed in Task 13). "Typecheck clean" in this plan means **no errors other than these**.
+- **Type-check baseline:** after Task 1, `npm run typecheck` reports exactly these pre-existing errors, which are out of scope: `components/mapboxBuses3DLayer.ts` (2, missing `three`), `ops/ErrorBoundary.tsx` (6), `pages/ops/OpsManagerPage.tsx` (3, at the DriverSessionRow / ComplaintCard / ManageDrivers props), and `components/StopPopup.tsx` (3 — 2 `ServiceRouteKey` argument errors at the `isRouteOperatingNow`/`getUpcomingRouteArrivals` calls in the arrivals effect, plus 1 `LineStringGeometry` error; all three are fixed by Task 13, which deletes that whole effect). 14 baseline errors total. "Typecheck clean" in this plan means **no errors other than these** (fewer, as tasks fix them, is expected).
 
 ## Deviations from the spec (decided while planning)
 
