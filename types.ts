@@ -50,6 +50,8 @@ export interface JourneySegment {
   routeName?: string;
   stopsCount?: number;
   waitTimeMin?: number;
+  /** Whether waitTimeMin comes from a live prediction or the timetable. */
+  waitSource?: 'live' | 'scheduled';
   busSegmentGeometry?: LineStringGeometry;
   /** Stop ids in order from board to alight (including board and alight). */
   busOrderedStopIds?: string[];

@@ -20,7 +20,7 @@ import { sliceRouteByDistance } from './routeInterpolation';
 import { getUpcomingRouteArrivals, isRouteOperatingNow } from './serviceSchedule';
 import { ROUTE_IDS, ROUTE_NAMES } from '../data/routes';
 import { getActivePattern } from './transitSelectors';
-import { fallbackRideSec, rideDistanceMeters } from './tripPlanning';
+import { estimateBusLeg, fallbackRideSec, rideDistanceMeters } from './tripPlanning';
 
 const BASE = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_OPS_API_URL) || '';
 const K_NEAREST = 6;
@@ -136,8 +136,12 @@ export async function computeMultimodalRoute(input: MultimodalInput): Promise<Jo
 
   const stopsById = new Map((network?.stops ?? []).map((s) => [s.id, s]));
 
+  const liveUsable = snapshot != null && (snapshot.status === 'live' || snapshot.status === 'degraded');
+  const liveVehicles = liveUsable ? snapshot.vehicles : [];
+
   for (const routeId of ROUTE_IDS) {
-    if (!isRouteOperatingNow(routeId, now)) continue;
+    const hasLiveBuses = liveVehicles.some((v) => v.routeId === routeId);
+    if (!hasLiveBuses && !isRouteOperatingNow(routeId, now)) continue;
     const pattern = getActivePattern(network, snapshot, routeId);
     if (!pattern || pattern.geometry.coordinates.length < 2) continue;
     const refs = patternStopRefs(pattern, stopsById);
@@ -145,7 +149,14 @@ export async function computeMultimodalRoute(input: MultimodalInput): Promise<Jo
     const refByStopId = new Map(refs.map((r) => [r.stop.id, r]));
     const routeStops = refs.map((r) => r.stop);
     const routeName = ROUTE_NAMES[routeId];
-    const waitSec = (getUpcomingRouteArrivals(routeId, now, 1)[0] ?? 0) * 60;
+    const timetableSec = getUpcomingRouteArrivals(routeId, now, 6).map((minutes) => minutes * 60);
+    /** Non-vehicle arrivals at a stop: GMV schedule predictions when live, else the timetable. */
+    const scheduledAtStop = (stopId: string): number[] => {
+      const live = liveUsable
+        ? (snapshot?.arrivalsByStop[stopId] ?? []).filter((a) => a.routeId === routeId).map((a) => a.etaSec)
+        : [];
+      return live.length > 0 ? live : timetableSec;
+    };
 
     const boardCandidates: StopCandidate[] = [];
     for (const { stop, distanceMeters } of findKNearestStops(origin, routeStops, K_NEAREST)) {
@@ -168,8 +179,18 @@ export async function computeMultimodalRoute(input: MultimodalInput): Promise<Jo
         if (board.ref.stop.id === alight.ref.stop.id) continue;
         const forwardStops = orderedStopsBetween(refs, board.ref.index, alight.ref.index);
         const distance = rideDistanceMeters(board.ref.distAlong, alight.ref.distAlong, pattern.lengthMeters);
-        const busDurationSec = fallbackRideSec(distance, forwardStops.length - 2);
-        const totalSec = board.walk.durationSec + waitSec + busDurationSec + alight.walk.durationSec;
+        const leg = estimateBusLeg({
+          vehicles: liveVehicles,
+          routeId,
+          boardStopId: board.ref.stop.id,
+          alightStopId: alight.ref.stop.id,
+          walkToBoardSec: board.walk.durationSec,
+          scheduledArrivalsSec: scheduledAtStop(board.ref.stop.id),
+          fallbackRideSec: fallbackRideSec(distance, forwardStops.length - 2),
+        });
+        if (!leg) continue;
+        const busDurationSec = leg.rideSec;
+        const totalSec = board.walk.durationSec + leg.waitSec + busDurationSec + alight.walk.durationSec;
         if (totalSec >= bestTotalSec) continue;
 
         const busGeometry = sliceRouteByDistance(pattern.geometry.coordinates, board.ref.distAlong, alight.ref.distAlong);
@@ -192,7 +213,8 @@ export async function computeMultimodalRoute(input: MultimodalInput): Promise<Jo
             routeId,
             routeName,
             stopsCount: forwardStops.length,
-            waitTimeMin: Math.ceil(waitSec / 60),
+            waitTimeMin: Math.ceil(leg.waitSec / 60),
+            waitSource: leg.source,
             busSegmentGeometry: { type: 'LineString', coordinates: busGeometry },
             busOrderedStopIds: forwardStops.map((s) => s.stop.id),
           },

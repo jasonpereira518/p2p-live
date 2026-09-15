@@ -637,7 +637,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
             <div className="ml-auto">
               <div className="inline-flex flex-col max-w-[180px] md:max-w-[220px] rounded-xl border border-amber-200 bg-amber-50 px-2.5 py-2 md:px-3 md:py-2.5 shadow-sm text-[11px] md:text-xs text-gray-900">
                 <div className="text-[9px] md:text-[10px] font-semibold uppercase tracking-wide text-amber-700 mb-1">
-                  Timing
+                  Timing{busSeg?.waitSource ? ` · ${busSeg.waitSource === 'live' ? 'Live' : 'Scheduled'}` : ''}
                 </div>
                 {hasBus && hasBusArrivalEstimate && nextBusAt && leaveAt ? (
                   <>
