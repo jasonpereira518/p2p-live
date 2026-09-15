@@ -1,58 +1,21 @@
 import React, { useMemo } from 'react';
-import type { Stop, LiveVehicle, Coordinate } from '../types';
-import { formatEta } from '../utils/format';
+import type { Stop, Coordinate } from '../types';
 import { getDistanceMeters, getWalkTimeMinutes } from '../utils/geo';
-import { ROUTE_COLORS, ROUTE_NAMES } from '../data/routes';
-import { useTransit } from '../context/TransitProvider';
-import { activePatternKey, getRoutesServingStop } from '../utils/transitSelectors';
-import { Navigation, Clock } from 'lucide-react';
-import { getServiceResumeLabel, getUpcomingRouteArrivals, isRouteOperatingNow } from '../utils/serviceSchedule';
+import { Navigation } from 'lucide-react';
+import { getServiceResumeLabel } from '../utils/serviceSchedule';
+import { ROUTE_COLORS } from '../data/routes';
+import { formatEta } from '../utils/format';
+import { useStopArrivals } from '../context/TransitProvider';
+import { ArrivalSourceTag } from './ArrivalSourceTag';
 
 interface ClosestStopCardProps {
   stop: Stop;
   userLocation: Coordinate;
-  vehicles: LiveVehicle[];
 }
 
-export const ClosestStopCard: React.FC<ClosestStopCardProps> = ({ stop, userLocation, vehicles }) => {
-  const walkTime = useMemo(() => {
-    const dist = getDistanceMeters(userLocation, stop);
-    return getWalkTimeMinutes(dist);
-  }, [userLocation, stop]);
-
-  const bestBus = useMemo(() => {
-    let bestVehicle: LiveVehicle | null = null;
-    let minEta = Infinity;
-
-    vehicles.forEach((v) => {
-      const upcoming = v.upcomingStops.find((s) => s.stopId === stop.id);
-      if (upcoming && upcoming.etaSec < minEta) {
-        minEta = upcoming.etaSec;
-        bestVehicle = v;
-      }
-    });
-
-    return { vehicle: bestVehicle as LiveVehicle | null, eta: minEta };
-  }, [stop, vehicles]);
-
-  const { network, snapshot } = useTransit();
-  const patternKey = activePatternKey(snapshot);
-  const mockArrivals = useMemo(
-    () =>
-      getRoutesServingStop(network, snapshot, stop.id)
-        .filter((routeId) => isRouteOperatingNow(routeId))
-        .flatMap((routeId) =>
-          getUpcomingRouteArrivals(routeId, new Date(), 2).map((minutes) => ({
-            routeName: ROUTE_NAMES[routeId],
-            minutes,
-            color: ROUTE_COLORS[routeId],
-          }))
-        )
-        .sort((a, b) => a.minutes - b.minutes)
-        .slice(0, 3),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [network, patternKey, stop.id]
-  );
+export const ClosestStopCard: React.FC<ClosestStopCardProps> = ({ stop, userLocation }) => {
+  const walkTime = useMemo(() => getWalkTimeMinutes(getDistanceMeters(userLocation, stop)), [userLocation, stop]);
+  const arrivals = useStopArrivals(stop.id, 3);
 
   return (
     <div className="mt-3 bg-white rounded-xl shadow-sm border border-gray-100 p-4">
@@ -68,42 +31,24 @@ export const ClosestStopCard: React.FC<ClosestStopCardProps> = ({ stop, userLoca
       </div>
 
       <div className="bg-gray-50 rounded-lg p-3">
-        {bestBus.vehicle ? (
-          <div className="flex items-center justify-between">
-            <div className="flex flex-col">
-              <span className="text-sm font-medium text-gray-900">
-                {bestBus.vehicle.routeName}
-              </span>
-              <span className="text-xs text-gray-500">Approaching</span>
-            </div>
-            <div className="flex items-center text-p2p-red">
-              <Clock size={16} className="mr-1.5" />
-              <span className="font-bold text-lg">{formatEta(bestBus.eta)}</span>
-            </div>
-          </div>
-        ) : mockArrivals.length > 0 ? (
+        {arrivals.length > 0 ? (
           <div className="space-y-2">
-            {mockArrivals.map((arr, idx) => {
-              const label =
-                arr.minutes < 2 ? 'Arriving now' : `Arriving in ${arr.minutes} min`;
-              return (
-                <div
-                  key={`${arr.routeName}-${idx}`}
-                  className="flex items-center justify-between"
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold text-white"
-                      style={{ backgroundColor: arr.color }}
-                    >
-                      {arr.routeName}
-                    </span>
-                    <span className="text-xs text-gray-500">Scheduled</span>
-                  </div>
-                  <span className="text-sm font-bold text-gray-900">{label}</span>
+            {arrivals.map((arr, idx) => (
+              <div key={`${arr.routeId}-${arr.vehicleId ?? 'sched'}-${idx}`} className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold text-white"
+                    style={{ backgroundColor: ROUTE_COLORS[arr.routeId] }}
+                  >
+                    {arr.routeName}
+                  </span>
+                  <ArrivalSourceTag source={arr.source} />
                 </div>
-              );
-            })}
+                <span className="text-sm font-bold text-gray-900">
+                  {arr.etaSec < 60 ? 'Arriving now' : `Arriving in ${formatEta(arr.etaSec)}`}
+                </span>
+              </div>
+            ))}
           </div>
         ) : (
           <span className="text-sm text-gray-500 italic">Service resumes at {getServiceResumeLabel()}</span>

@@ -156,7 +156,6 @@ function App() {
                 <ClosestStopCard
                   stop={closestStop}
                   userLocation={userLocation}
-                  vehicles={vehicles}
                 />
               </div>
             )}

@@ -4,9 +4,10 @@
  */
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import type { ClientLiveStatus, LiveSnapshot, LiveVehicle, TransitNetwork } from '../types';
+import type { ClientLiveStatus, LiveSnapshot, LiveVehicle, StopArrival, TransitNetwork } from '../types';
 import { fetchNetwork, fetchSnapshot } from '../utils/transitApi';
 import { deriveClientStatus, nextPollDelayMs, visibleVehicles } from '../utils/livePolling';
+import { getStopArrivals } from '../utils/arrivals';
 
 const NETWORK_RETRY_MS = 30000;
 
@@ -123,4 +124,12 @@ export function useTransit(): TransitContextValue {
   const value = useContext(TransitContext);
   if (!value) throw new Error('useTransit must be used inside <TransitProvider>');
   return value;
+}
+
+export function useStopArrivals(stopId: string | null, limit = 5): StopArrival[] {
+  const { network, snapshot, status } = useTransit();
+  return useMemo(
+    () => (stopId ? getStopArrivals({ stopId, snapshot, status, network, now: new Date(), limit }) : []),
+    [stopId, snapshot, status, network, limit]
+  );
 }
