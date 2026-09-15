@@ -14,8 +14,8 @@ import { ShieldAlert } from 'lucide-react';
 
 type DiagnosticsResponse = {
   env: { nodeEnv: string; mapboxTokenConfigured: boolean; geminiKeyConfigured: boolean; geminiModel: string };
-  cache: { routeCacheEntries: number; walkCacheEntries: number };
-  errors: { failedLlmCalls: number; directionsFailures: number; routeDirectionsFailures: number };
+  cache: { walkCacheEntries: number };
+  errors: { failedLlmCalls: number; directionsFailures: number };
   memory: { rssMb: number; heapUsedMb: number; heapTotalMb: number };
   process: { pid: number; uptimeSec: number; node: string };
   gmv?: { configured: boolean; callCount: number; lastSuccessAt: number | null; lastError: string | null; cacheHits: number };
@@ -391,7 +391,6 @@ export function OpsAdminPage() {
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
               <h3 className="text-sm font-semibold text-gray-900 mb-3">Cache</h3>
               <ul className="text-sm text-gray-700 space-y-1">
-                <li><span className="text-gray-500">Route cache entries:</span> <span className="font-mono">{diag?.cache?.routeCacheEntries ?? 0}</span></li>
                 <li><span className="text-gray-500">GMV API:</span> <span className="font-mono">{diag?.gmv ? (diag.gmv.configured ? `${diag.gmv.callCount} calls · ${diag.gmv.cacheHits} cache hits` : 'key not set') : '—'}</span></li>
                 <li><span className="text-gray-500">GMV last success:</span> <span className="font-mono">{diag?.gmv?.lastSuccessAt ? new Date(diag.gmv.lastSuccessAt).toLocaleTimeString() : '—'}</span></li>
                 {diag?.gmv?.lastError && (
