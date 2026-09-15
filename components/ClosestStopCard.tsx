@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
-import { Stop, Vehicle, Coordinate } from '../types';
+import type { Stop, LiveVehicle, Coordinate } from '../types';
+import { formatEta } from '../utils/format';
 import { getDistanceMeters, getWalkTimeMinutes } from '../utils/geo';
 import { ROUTE_CONFIGS } from '../data/routeConfig';
 import { Navigation, Clock } from 'lucide-react';
@@ -8,7 +9,7 @@ import { getServiceResumeLabel, getUpcomingRouteArrivals, isRouteOperatingNow } 
 interface ClosestStopCardProps {
   stop: Stop;
   userLocation: Coordinate;
-  vehicles: Vehicle[];
+  vehicles: LiveVehicle[];
 }
 
 export const ClosestStopCard: React.FC<ClosestStopCardProps> = ({ stop, userLocation, vehicles }) => {
@@ -18,18 +19,18 @@ export const ClosestStopCard: React.FC<ClosestStopCardProps> = ({ stop, userLoca
   }, [userLocation, stop]);
 
   const bestBus = useMemo(() => {
-    let bestVehicle: Vehicle | null = null;
+    let bestVehicle: LiveVehicle | null = null;
     let minEta = Infinity;
 
-    vehicles.forEach(v => {
-      const upcoming = v.upcomingStops.find(s => s.stopId === stop.id);
-      if (upcoming && upcoming.etaMin < minEta) {
-        minEta = upcoming.etaMin;
+    vehicles.forEach((v) => {
+      const upcoming = v.upcomingStops.find((s) => s.stopId === stop.id);
+      if (upcoming && upcoming.etaSec < minEta) {
+        minEta = upcoming.etaSec;
         bestVehicle = v;
       }
     });
 
-    return { vehicle: bestVehicle, eta: minEta };
+    return { vehicle: bestVehicle as LiveVehicle | null, eta: minEta };
   }, [stop, vehicles]);
 
   const mockArrivals = useMemo(() => {
@@ -80,7 +81,7 @@ export const ClosestStopCard: React.FC<ClosestStopCardProps> = ({ stop, userLoca
             </div>
             <div className="flex items-center text-p2p-red">
               <Clock size={16} className="mr-1.5" />
-              <span className="font-bold text-lg">{bestBus.eta} min</span>
+              <span className="font-bold text-lg">{formatEta(bestBus.eta)}</span>
             </div>
           </div>
         ) : mockArrivals.length > 0 ? (

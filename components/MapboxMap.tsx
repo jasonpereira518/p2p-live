@@ -1,18 +1,25 @@
 /**
- * Mapbox GL JS map (student map view). Replaces Leaflet.
+ * Mapbox GL JS map (student map view).
  * Single init on mount; updates via source.setData. No globe mode.
- * Route polylines from server proxy (/api/mapbox/route); stops from p2pStops.
- * Buses are snapped to route geometry and animated along it.
+ * Route lines come from the active GMV patterns. Buses are live GMV vehicles, moved along their
+ * pattern between snapshots and eased into each new report.
  */
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import type { Map as MapboxMapType, GeoJSONSource } from 'mapbox-gl';
-import { Stop, Vehicle, Coordinate, Journey } from '../types';
+import type { Stop, LiveVehicle, Coordinate, Journey, RouteId } from '../types';
 import { P2P_EXPRESS_STOPS, BAITY_HILL_STOPS } from '../data/p2pStops';
-import { createRouteInterpolator, type LngLat } from '../utils/routeInterpolation';
+import { createRouteInterpolator, type LngLat, type RouteInterpolator } from '../utils/routeInterpolation';
+import {
+  easeToward,
+  extrapolateVehicle,
+  EASE_SEC,
+  MAX_EXTRAPOLATE_SEC,
+  type BusPosition,
+} from '../utils/liveVehicleAnimation';
+import { ROUTE_COLORS } from '../data/routes';
 import { Navigation, Box, ExternalLink } from 'lucide-react';
-import { API } from '../utils/api';
 
 type GeoJSONFC = { type: 'FeatureCollection'; features: Array<{ type: 'Feature'; geometry: { type: 'Point'; coordinates: number[] } | { type: 'LineString'; coordinates: [number, number][] }; properties: Record<string, unknown> }> };
 
@@ -47,8 +54,6 @@ const JOURNEY_LAYER = 'journey-layer';
 const JOURNEY_STOPS_LAYER = 'journey-stops-layer';
 const DESTINATION_LAYER = 'destination-layer';
 
-const ROUTE_COLORS = { P2P_EXPRESS: '#418FC5', BAITY_HILL: '#C33934' } as const;
-const BUS_SPEED_MPS = 6;
 const TICK_MS = 300;
 
 /** Overlap tolerance in meters (2–5m for "same corridor"). */
@@ -236,16 +241,14 @@ function emptyLineGeoJSON(): { type: 'FeatureCollection'; features: Array<{ type
   };
 }
 
-/** GeoJSON for buses (points with busId, routeId, bearing for symbol rotation). */
-function busesToGeoJSON(
-  busPositions: { id: string; routeId: string; lon: number; lat: number; bearing: number }[]
-): GeoJSONFC {
+/** GeoJSON for buses (points with busId, routeId, bearing for symbol rotation, stale for fading). */
+function busesToGeoJSON(busPositions: BusPosition[]): GeoJSONFC {
   return {
     type: 'FeatureCollection',
     features: busPositions.map((b) => ({
       type: 'Feature' as const,
       geometry: { type: 'Point' as const, coordinates: [b.lon, b.lat] },
-      properties: { busId: b.id, routeId: b.routeId, bearing: b.bearing },
+      properties: { busId: b.id, routeId: b.routeId, bearing: b.bearing, stale: b.stale },
     })),
   };
 }
@@ -297,12 +300,20 @@ function journeyStopsToGeoJSON(j: Journey | null): GeoJSONFC {
 
 export interface MapboxMapProps {
   stops: Stop[];
-  vehicles: Vehicle[];
+  vehicles: LiveVehicle[];
+  /** Client time (ms) when `vehicles` arrived; buses are extrapolated from here. */
+  vehiclesReceivedAt: number | null;
+  /** Active pattern line per route (drawn). */
+  routeLines: Record<RouteId, LngLat[]>;
+  /** Every known pattern's line, keyed by pattern id (used to move buses). */
+  patternLines: Record<number, LngLat[]>;
+  /** Short live-data status shown in the route card (null when live). */
+  statusNote?: string | null;
   userLocation: Coordinate | null;
   userLocationResolved?: boolean;
   selectedStopId: string | null;
   activeJourney: Journey | null;
-  onSelectBus: (bus: Vehicle) => void;
+  onSelectBus: (bus: LiveVehicle) => void;
   onSelectStop: (stop: Stop) => void;
   onMapClick?: () => void;
   enable3D?: boolean;
@@ -316,6 +327,10 @@ export interface MapboxMapProps {
 export const MapboxMap: React.FC<MapboxMapProps> = ({
   stops,
   vehicles,
+  vehiclesReceivedAt,
+  routeLines,
+  patternLines,
+  statusNote = null,
   userLocation,
   userLocationResolved = false,
   selectedStopId,
@@ -335,16 +350,12 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   const [mapReady, setMapReady] = useState(false);
   const [showExpress, setShowExpress] = useState(true);
   const [showBaity, setShowBaity] = useState(true);
-  const routeGeomsRef = useRef<{ P2P_EXPRESS: LngLat[]; BAITY_HILL: LngLat[] }>({
-    P2P_EXPRESS: [],
-    BAITY_HILL: [],
-  });
-  const interpolatorsRef = useRef<{
-    P2P_EXPRESS: ReturnType<typeof createRouteInterpolator> | null;
-    BAITY_HILL: ReturnType<typeof createRouteInterpolator> | null;
-  }>({ P2P_EXPRESS: null, BAITY_HILL: null });
-  const busDistMetersRef = useRef<Record<string, number>>({});
-  const lastTickRef = useRef<number>(0);
+  const vehiclesRef = useRef<LiveVehicle[]>(vehicles);
+  const receivedAtRef = useRef<number | null>(vehiclesReceivedAt);
+  const patternInterpRef = useRef<Map<number, RouteInterpolator>>(new Map());
+  const displayedBusesRef = useRef<Map<string, BusPosition>>(new Map());
+  vehiclesRef.current = vehicles;
+  receivedAtRef.current = vehiclesReceivedAt;
   const enabledBusRoutesRef = useRef({ showExpress: true, showBaity: true });
 
   const token = typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_MAPBOX_TOKEN;
@@ -585,8 +596,8 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       const applyBusLayerFilter = () => {
         const { showExpress, showBaity } = enabledBusRoutesRef.current;
         const enabledRouteIds: string[] = [];
-        if (showExpress) enabledRouteIds.push('p2p-express');
-        if (showBaity) enabledRouteIds.push('baity-hill');
+        if (showExpress) enabledRouteIds.push('P2P_EXPRESS');
+        if (showBaity) enabledRouteIds.push('BAITY_HILL');
         try {
           if (!map.getLayer(BUSES_LAYER)) return;
           if (enabledRouteIds.length === 0) map.setFilter(BUSES_LAYER, ['==', ['get', 'routeId'], '']);
@@ -603,14 +614,14 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
           type: 'symbol',
           source: BUSES_SOURCE,
           layout: {
-            'icon-image': ['match', ['get', 'routeId'], 'p2p-express', 'bus-express', 'bus-baity'],
+            'icon-image': ['match', ['get', 'routeId'], 'P2P_EXPRESS', 'bus-express', 'bus-baity'],
             'icon-size': 0.032,
             'icon-rotate': ['get', 'bearing'],
             'icon-rotation-alignment': 'map',
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
           },
-          paint: {},
+          paint: { 'icon-opacity': ['case', ['get', 'stale'], 0.45, 1] },
         });
         applyBusLayerFilter();
       };
@@ -651,7 +662,8 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
               source: BUSES_SOURCE,
               paint: {
                 'circle-radius': 10,
-                'circle-color': ['case', ['==', ['get', 'routeId'], 'p2p-express'], BUS_ICON_EXPRESS_COLOR, BUS_ICON_BAITY_COLOR],
+                'circle-color': ['case', ['==', ['get', 'routeId'], 'P2P_EXPRESS'], BUS_ICON_EXPRESS_COLOR, BUS_ICON_BAITY_COLOR],
+                'circle-opacity': ['case', ['get', 'stale'], 0.45, 1],
                 'circle-stroke-width': 2,
                 'circle-stroke-color': '#fff',
               },
@@ -849,119 +861,70 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     });
   }, [mapReady, centerOnCampusAt]);
 
-  // Fetch route polylines from server proxy (cached); store geometry for bus interpolation
+  // Route lines: the active GMV pattern per route.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const expressCoords = routeLines.P2P_EXPRESS;
+    const baityCoords = routeLines.BAITY_HILL;
+    const expressSrc = map.getSource(P2P_EXPRESS_LINE_SOURCE) as GeoJSONSource | undefined;
+    const baitySrc = map.getSource(BAITY_HILL_LINE_SOURCE) as GeoJSONSource | undefined;
+
+    if (expressSrc) {
+      expressSrc.setData(
+        expressCoords.length > 1
+          ? {
+              type: 'FeatureCollection',
+              features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: expressCoords }, properties: {} }],
+            }
+          : emptyLineGeoJSON()
+      );
+    }
+    if (baitySrc) {
+      if (baityCoords.length > 1) {
+        const { baseFeatures, overlapFeatures } = splitBaityByOverlap(baityCoords, expressCoords, OVERLAP_TOLERANCE_METERS);
+        baitySrc.setData({ type: 'FeatureCollection', features: [...baseFeatures, ...overlapFeatures] });
+      } else {
+        baitySrc.setData(emptyLineGeoJSON());
+      }
+    }
+  }, [mapReady, routeLines]);
+
+  // Interpolators for every pattern, so each bus moves along the pattern it reports.
+  useEffect(() => {
+    const next = new Map<number, RouteInterpolator>();
+    for (const [id, coords] of Object.entries(patternLines) as [string, LngLat[]][]) {
+      const interp = createRouteInterpolator(coords);
+      if (interp) next.set(Number(id), interp);
+    }
+    patternInterpRef.current = next;
+  }, [patternLines]);
+
+  // Live buses: extrapolate along the reported pattern since the snapshot arrived, easing into each new report.
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
     const map = mapRef.current;
-
-    const updateRouteLineSources = () => {
-      const expressCoords = routeGeomsRef.current.P2P_EXPRESS;
-      const baityCoords = routeGeomsRef.current.BAITY_HILL;
-      const expressSrc = map.getSource(P2P_EXPRESS_LINE_SOURCE) as GeoJSONSource | undefined;
-      const baitySrc = map.getSource(BAITY_HILL_LINE_SOURCE) as GeoJSONSource | undefined;
-
-      if (expressSrc && expressCoords && expressCoords.length > 1) {
-        expressSrc.setData({
-          type: 'FeatureCollection',
-          features: [
-            {
-              type: 'Feature',
-              geometry: { type: 'LineString', coordinates: expressCoords },
-              properties: {},
-            },
-          ],
-        });
+    let lastTick = performance.now();
+    const id = setInterval(() => {
+      const nowPerf = performance.now();
+      const dtSec = (nowPerf - lastTick) / 1000;
+      lastTick = nowPerf;
+      const receivedAt = receivedAtRef.current;
+      const elapsedSec = receivedAt != null ? (Date.now() - receivedAt) / 1000 : 0;
+      const previous = displayedBusesRef.current;
+      const next = new Map<string, BusPosition>();
+      for (const v of vehiclesRef.current) {
+        const interp = v.patternId != null ? patternInterpRef.current.get(v.patternId) ?? null : null;
+        const target = extrapolateVehicle(v, interp, elapsedSec, MAX_EXTRAPOLATE_SEC);
+        const prev = previous.get(v.id);
+        next.set(v.id, prev ? easeToward(prev, target, dtSec, EASE_SEC) : target);
       }
-
-      if (baitySrc && baityCoords && baityCoords.length > 1) {
-        const { baseFeatures, overlapFeatures } = splitBaityByOverlap(
-          baityCoords,
-          expressCoords,
-          OVERLAP_TOLERANCE_METERS
-        );
-        const features = [...baseFeatures, ...overlapFeatures];
-        baitySrc.setData({ type: 'FeatureCollection', features });
-      }
-    };
-
-    (['P2P_EXPRESS', 'BAITY_HILL'] as const).forEach((routeId) => {
-      fetch(`${API}/api/mapbox/route?routeId=${routeId}`)
-        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(res.statusText))))
-        .then((data: { geometry?: { type: string; coordinates: [number, number][] }; routeId: string }) => {
-          if (!data.geometry || !data.geometry.coordinates.length) return;
-          const coords = data.geometry.coordinates as LngLat[];
-          if (routeId === 'P2P_EXPRESS') {
-            routeGeomsRef.current.P2P_EXPRESS = coords;
-            interpolatorsRef.current.P2P_EXPRESS = createRouteInterpolator(coords);
-          } else {
-            routeGeomsRef.current.BAITY_HILL = coords;
-            interpolatorsRef.current.BAITY_HILL = createRouteInterpolator(coords);
-          }
-          updateRouteLineSources();
-        })
-        .catch((err) => console.warn('Route fetch failed', routeId, err));
-    });
-  }, [mapReady]);
-
-  // Bus animation: snap to route, advance distMeters each tick, update buses source
-  useEffect(() => {
-    if (!mapReady || !mapRef.current || !vehicles.length) return;
-    const map = mapRef.current;
-    const interp = interpolatorsRef.current;
-    const routeIdToKey = (id: string) => (id === 'p2p-express' ? 'P2P_EXPRESS' : 'BAITY_HILL');
-
-    const initBusDist = (v: Vehicle) => {
-      const key = routeIdToKey(v.routeId);
-      const ip = key === 'P2P_EXPRESS' ? interp.P2P_EXPRESS : interp.BAITY_HILL;
-      if (ip && busDistMetersRef.current[v.id] === undefined) {
-        const total = ip.totalLengthMeters;
-        const count = vehicles.filter((x) => routeIdToKey(x.routeId) === key).length;
-        const idx = vehicles.filter((x) => routeIdToKey(x.routeId) === key).indexOf(v);
-        busDistMetersRef.current[v.id] = total * (idx / Math.max(count, 1));
-      }
-    };
-
-    const tick = (now: number) => {
-      const dt = (now - lastTickRef.current) / 1000;
-      lastTickRef.current = now;
-      const positions: { id: string; routeId: string; lon: number; lat: number; bearing: number }[] = [];
-      vehicles.forEach((v) => {
-        const key = routeIdToKey(v.routeId);
-        const ip = key === 'P2P_EXPRESS' ? interp.P2P_EXPRESS : interp.BAITY_HILL;
-        initBusDist(v);
-        if (ip) {
-          let d = busDistMetersRef.current[v.id] ?? 0;
-          d += BUS_SPEED_MPS * dt;
-          d = d % ip.totalLengthMeters;
-          if (d < 0) d += ip.totalLengthMeters;
-          busDistMetersRef.current[v.id] = d;
-          const [lon, lat] = ip.pointAt(d);
-          const bearing = ip.bearingAt(d);
-          positions.push({ id: v.id, routeId: v.routeId, lon, lat, bearing });
-        } else {
-          positions.push({
-            id: v.id,
-            routeId: v.routeId,
-            lon: v.lon,
-            lat: v.lat,
-            bearing: v.heading ?? 0,
-          });
-        }
-      });
+      displayedBusesRef.current = next;
       const src = map.getSource(BUSES_SOURCE) as GeoJSONSource | undefined;
-      if (src) {
-        const geojson = busesToGeoJSON(positions);
-        src.setData(geojson);
-        if (isDev && positions.length > 0 && Math.random() < 0.01) {
-          console.log('[Mapbox buses] setData', { features: geojson.features.length, sample: geojson.features[0] });
-        }
-      }
-    };
-
-    lastTickRef.current = performance.now();
-    const id = setInterval(() => tick(performance.now()), TICK_MS);
+      if (src) src.setData(busesToGeoJSON([...next.values()]));
+    }, TICK_MS);
     return () => clearInterval(id);
-  }, [mapReady, vehicles]);
+  }, [mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1074,8 +1037,8 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       }
     });
     const enabledRouteIds: string[] = [];
-    if (showExpress) enabledRouteIds.push('p2p-express');
-    if (showBaity) enabledRouteIds.push('baity-hill');
+    if (showExpress) enabledRouteIds.push('P2P_EXPRESS');
+    if (showBaity) enabledRouteIds.push('BAITY_HILL');
     try {
       if (map.getLayer(BUSES_LAYER)) {
         if (enabledRouteIds.length === 0) {
@@ -1185,6 +1148,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
               />
               <span className="text-sm font-medium" style={{ color: ROUTE_COLORS.BAITY_HILL }}>Baity Hill</span>
             </label>
+            {statusNote && <p className="w-full text-xs font-medium text-amber-700">{statusNote}</p>}
           </div>
 
           {/* When navigation active: compact icon-only 3D + Routes under Buses */}

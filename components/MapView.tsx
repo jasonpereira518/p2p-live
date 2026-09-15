@@ -1,16 +1,20 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { MapboxMap } from './MapboxMap';
 import { StopPopup } from './StopPopup';
-import { Stop, Vehicle, Coordinate, Journey } from '../types';
+import type { Stop, LiveVehicle, Coordinate, Journey, RouteId } from '../types';
+import type { LngLat } from '../utils/routeInterpolation';
+import { useTransit } from '../context/TransitProvider';
+import { getActivePattern } from '../utils/transitSelectors';
+import { getLiveStatusMessage } from '../utils/liveStatus';
 import { X, Box, ExternalLink } from 'lucide-react';
 
 const UNC_P2P_ROUTES_PDF_URL = 'https://move.unc.edu/wp-content/uploads/sites/248/2022/08/unc-point-to-point-map.pdf';
 
 interface MapViewProps {
   stops: Stop[];
-  vehicles: Vehicle[];
+  vehicles: LiveVehicle[];
   userLocation: Coordinate;
-  onSelectBus: (bus: Vehicle) => void;
+  onSelectBus: (bus: LiveVehicle) => void;
   onSelectStop: (stop: Stop) => void;
   onDismissStop: () => void;
   selectedStop: Stop | null;
@@ -40,11 +44,32 @@ export const MapView: React.FC<MapViewProps> = ({
 }) => {
   const [enable3D, setEnable3D] = useState(false);
 
+  const { network, snapshot, status, snapshotReceivedAt } = useTransit();
+  const expressPattern = getActivePattern(network, snapshot, 'P2P_EXPRESS');
+  const baityPattern = getActivePattern(network, snapshot, 'BAITY_HILL');
+  const routeLines = useMemo<Record<RouteId, LngLat[]>>(
+    () => ({
+      P2P_EXPRESS: expressPattern?.geometry.coordinates ?? [],
+      BAITY_HILL: baityPattern?.geometry.coordinates ?? [],
+    }),
+    [expressPattern, baityPattern]
+  );
+  const patternLines = useMemo<Record<number, LngLat[]>>(() => {
+    const out: Record<number, LngLat[]> = {};
+    network?.routes.forEach((r) => r.patterns.forEach((p) => { out[p.id] = p.geometry.coordinates; }));
+    return out;
+  }, [network]);
+  const statusNote = getLiveStatusMessage(status)?.text ?? null;
+
   return (
     <div className="w-full h-full bg-gray-100 relative">
       <MapboxMap
         stops={stops}
         vehicles={vehicles}
+        vehiclesReceivedAt={snapshotReceivedAt}
+        routeLines={routeLines}
+        patternLines={patternLines}
+        statusNote={statusNote}
         userLocation={userLocation}
         userLocationResolved={userLocationResolved}
         selectedStopId={selectedStop?.id ?? null}
