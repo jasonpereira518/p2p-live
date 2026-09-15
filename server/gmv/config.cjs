@@ -12,11 +12,13 @@ const ROUTES = {
 
 /**
  * Pattern shown when no buses are running and none has been seen since the server started.
- * 31799 / 31798 are the "Granville Closed" variants; switch to 25545 / 25535 (base variants) when the detour ends.
+ * Confirmed 2026-09-14 during service hours: both routes are running the base variants
+ * (25545 / 25535), not the "Granville Closed" variants (31799 / 31798) — the detour has ended.
  */
-const DEFAULT_PATTERN = { P2P_EXPRESS: 31799, BAITY_HILL: 31798 };
+const DEFAULT_PATTERN = { P2P_EXPRESS: 25545, BAITY_HILL: 25535 };
 
-/** Multiply GMV `speed` by this to get m/s. Assumes mph until confirmed during service hours. */
+/** Multiply GMV `speed` by this to get m/s. Confirmed mph against live vehicles on 2026-09-14
+ *  (distance-traveled-vs-reported-speed ratio ~0.48, closest to the mph factor 0.44704). */
 const SPEED_TO_MPS = 0.44704;
 
 const NETWORK_TTL_MS = 6 * 60 * 60 * 1000;
