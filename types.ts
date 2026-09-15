@@ -10,29 +10,6 @@ export interface Stop {
   lon: number;
 }
 
-export interface Route {
-  id: string;
-  name: string;
-  color: string;
-}
-
-export interface UpcomingStop {
-  stopId: string;
-  etaMin: number;
-}
-
-export interface Vehicle {
-  id: string;
-  routeId: string;
-  routeName: string;
-  lat: number;
-  lon: number;
-  heading: number;
-  nextStopId: string;
-  nextStopEtaMin: number;
-  upcomingStops: UpcomingStop[];
-}
-
 export interface Destination {
   id: string;
   name: string;

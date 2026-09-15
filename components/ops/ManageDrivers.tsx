@@ -7,7 +7,7 @@ import { listDrivers, addDriver, updateDriver, removeDriver, getDisplayName, get
 import { Avatar } from './Avatar';
 import { Modal } from './Modal';
 import { MOCK_FLEET_STATUS_ROWS } from '../../data/mockOps';
-import { ROUTE_CONFIGS } from '../../data/routeConfig';
+import { ROUTE_IDS, ROUTE_NAMES } from '../../data/routes';
 import { clearDriverAssignment, getDriverAssignment, getAllDriverAssignments, setDriverAssignment } from '../../storage/opsAssignments';
 
 const AVATAR_PRESETS = [
@@ -40,7 +40,7 @@ export function ManageDrivers({ onDriversChange }: ManageDriversProps) {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [error, setError] = useState('');
   const busOptions = useMemo(() => Array.from(new Set(MOCK_FLEET_STATUS_ROWS.map((row) => row.busId))).sort(), []);
-  const routeOptions = useMemo(() => ROUTE_CONFIGS.map((route) => route.routeName), []);
+  const routeOptions = useMemo(() => ROUTE_IDS.map((id) => ROUTE_NAMES[id]), []);
 
   const refresh = () => {
     setDrivers(listDrivers());

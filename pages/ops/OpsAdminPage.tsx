@@ -7,8 +7,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { OpsLayout } from '../../ops/OpsLayout';
 import { StatCard } from '../../components/ops/StatCard';
 import { AdminOptimizationCard } from '../../components/ops/AdminOptimizationCard';
-import { STOPS } from '../../data/p2pStops';
-import { VEHICLES } from '../../data/mockTransit';
+import { useTransit } from '../../context/TransitProvider';
 import { MOCK_COMPLAINTS, MOCK_SYSTEM_HEALTH, MOCK_LATENCY, MOCK_TRAFFIC, MOCK_ALERTS, ADMIN_OPTIMIZATION_DISPLAY } from '../../data/mockOps';
 import { computeAdminMetrics, getCachedAdminMetrics, setCachedAdminMetrics, type AdminMetrics } from '../../utils/adminMetrics';
 import { ShieldAlert } from 'lucide-react';
@@ -26,6 +25,7 @@ function formatKm(meters: number) {
 }
 
 export function OpsAdminPage() {
+  const { network, vehicles } = useTransit();
   const health = MOCK_SYSTEM_HEALTH;
   const alerts = MOCK_ALERTS;
   const [metrics, setMetrics] = useState<AdminMetrics | null>(() => getCachedAdminMetrics());
@@ -50,13 +50,14 @@ export function OpsAdminPage() {
   }, []);
 
   useEffect(() => {
+    if (!network) return;
     let cancelled = false;
     (async () => {
       setMetricsLoading(metrics == null);
       try {
         const next = await computeAdminMetrics({
-          stops: STOPS,
-          vehicles: VEHICLES,
+          stops: network.stops,
+          vehicles,
           complaints: MOCK_COMPLAINTS,
         });
         if (cancelled) return;
@@ -70,7 +71,7 @@ export function OpsAdminPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [network]);
 
   const status = useMemo(() => {
     const p95 = metrics?.system.apiLatencyP95Ms ?? null;

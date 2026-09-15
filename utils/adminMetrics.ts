@@ -1,4 +1,4 @@
-import type { Coordinate, Stop, Vehicle } from '../types';
+import type { Coordinate, LiveVehicle, Stop } from '../types';
 import { getDistanceMeters } from './geo';
 
 const CAMPUS_BBOX = { west: -79.08, south: 35.89, east: -79.03, north: 35.93 };
@@ -74,23 +74,6 @@ async function timeFetch(url: string, init?: RequestInit, samples = 3): Promise<
   return { avg: avg != null ? Math.round(avg) : null, p95: p95 != null ? Math.round(p95) : null };
 }
 
-function toRouteIdFromVehicleRouteId(routeId: string): RouteId | null {
-  if (routeId === 'p2p-express') return 'P2P_EXPRESS';
-  if (routeId === 'baity-hill') return 'BAITY_HILL';
-  return null;
-}
-
-function mockFullnessPercent(vehicle: Vehicle): number {
-  const key = `${vehicle.id}-${vehicle.nextStopEtaMin}`;
-  let hash = 0;
-  for (let i = 0; i < key.length; i++) {
-    hash = (hash * 31 + key.charCodeAt(i)) | 0;
-  }
-  const base = (Math.abs(hash) % 1000) / 1000;
-  const percent = 30 + base * 50; // 30–80
-  return Math.round(percent);
-}
-
 async function fetchRouteInfo(routeId: RouteId): Promise<{ distanceMeters: number | null; durationSec: number | null }> {
   const res = await fetch(`/api/mapbox/route?routeId=${encodeURIComponent(routeId)}`);
   if (!res.ok) return { distanceMeters: null, durationSec: null };
@@ -144,7 +127,7 @@ export function setCachedAdminMetrics(metrics: AdminMetrics) {
 
 export async function computeAdminMetrics(input: {
   stops: Stop[];
-  vehicles: Vehicle[];
+  vehicles: LiveVehicle[];
   complaints?: Array<{ route?: string; category?: string; notes?: string }>;
 }): Promise<AdminMetrics> {
   const { stops, vehicles, complaints = [] } = input;
@@ -165,10 +148,8 @@ export async function computeAdminMetrics(input: {
   const fullnessBuckets: Record<RouteId, number[]> = { P2P_EXPRESS: [], BAITY_HILL: [] };
 
   vehicles.forEach((v) => {
-    const rid = toRouteIdFromVehicleRouteId(v.routeId);
-    if (!rid) return;
-    activeBusCounts[rid] += 1;
-    fullnessBuckets[rid].push(mockFullnessPercent(v));
+    activeBusCounts[v.routeId] += 1;
+    if (v.load != null) fullnessBuckets[v.routeId].push(Math.round(v.load * 100));
   });
 
   const countIssues = (routeLabel: string | null) => {
