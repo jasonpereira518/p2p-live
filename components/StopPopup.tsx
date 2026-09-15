@@ -3,10 +3,12 @@
  * Dismissible via X, Escape, or click-outside (handled by parent).
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { X, Navigation, List } from 'lucide-react';
 import type { Stop, Coordinate, Journey } from '../types';
-import { getRoutesServedForStop } from '../data/p2pStops';
+import { useTransit } from '../context/TransitProvider';
+import { activePatternKey, getRoutesServingStop } from '../utils/transitSelectors';
+import { ROUTE_NAMES } from '../data/routes';
 import { getWalkDirections } from '../utils/multimodalRouting';
 import { getDistanceMeters, getWalkTimeMinutes } from '../utils/geo';
 import { getUpcomingRouteArrivals, isRouteOperatingNow } from '../utils/serviceSchedule';
@@ -39,7 +41,13 @@ export function StopPopup({
   const [walkLoading, setWalkLoading] = useState(false);
   const [walkError, setWalkError] = useState<string | null>(null);
 
-  const routesServed = getRoutesServedForStop(stop);
+  const { network, snapshot } = useTransit();
+  const patternKey = activePatternKey(snapshot);
+  const routesServed = useMemo(
+    () => getRoutesServingStop(network, snapshot, stop.id).map((routeId) => ROUTE_NAMES[routeId]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [network, patternKey, stop.id]
+  );
 
   useEffect(() => {
     setArrivalsLoading(true);

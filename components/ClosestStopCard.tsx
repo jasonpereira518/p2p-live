@@ -2,7 +2,9 @@ import React, { useMemo } from 'react';
 import type { Stop, LiveVehicle, Coordinate } from '../types';
 import { formatEta } from '../utils/format';
 import { getDistanceMeters, getWalkTimeMinutes } from '../utils/geo';
-import { ROUTE_CONFIGS } from '../data/routeConfig';
+import { ROUTE_COLORS, ROUTE_NAMES } from '../data/routes';
+import { useTransit } from '../context/TransitProvider';
+import { activePatternKey, getRoutesServingStop } from '../utils/transitSelectors';
 import { Navigation, Clock } from 'lucide-react';
 import { getServiceResumeLabel, getUpcomingRouteArrivals, isRouteOperatingNow } from '../utils/serviceSchedule';
 
@@ -33,29 +35,24 @@ export const ClosestStopCard: React.FC<ClosestStopCardProps> = ({ stop, userLoca
     return { vehicle: bestVehicle as LiveVehicle | null, eta: minEta };
   }, [stop, vehicles]);
 
-  const mockArrivals = useMemo(() => {
-    const servingRoutes = ROUTE_CONFIGS.filter((route) =>
-      route.stops.some((rs) => rs.id === stop.id)
-    );
-    const activeServingRoutes = servingRoutes.filter((route) => isRouteOperatingNow(route.routeId));
-    if (activeServingRoutes.length === 0) {
-      return [] as { routeName: string; minutes: number; color: string }[];
-    }
-
-    const arrivals = activeServingRoutes
-      .flatMap((route) =>
-        getUpcomingRouteArrivals(route.routeId, new Date(), 2).map((minutes) => ({
-          routeName: route.routeName,
-          minutes,
-          color: route.routeColor,
-        }))
-      )
-      .sort((a, b) => a.minutes - b.minutes)
-      .slice(0, 3)
-      .map(({ routeName, minutes, color }) => ({ routeName, minutes, color }));
-
-    return arrivals;
-  }, [stop.id]);
+  const { network, snapshot } = useTransit();
+  const patternKey = activePatternKey(snapshot);
+  const mockArrivals = useMemo(
+    () =>
+      getRoutesServingStop(network, snapshot, stop.id)
+        .filter((routeId) => isRouteOperatingNow(routeId))
+        .flatMap((routeId) =>
+          getUpcomingRouteArrivals(routeId, new Date(), 2).map((minutes) => ({
+            routeName: ROUTE_NAMES[routeId],
+            minutes,
+            color: ROUTE_COLORS[routeId],
+          }))
+        )
+        .sort((a, b) => a.minutes - b.minutes)
+        .slice(0, 3),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [network, patternKey, stop.id]
+  );
 
   return (
     <div className="mt-3 bg-white rounded-xl shadow-sm border border-gray-100 p-4">

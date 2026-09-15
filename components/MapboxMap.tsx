@@ -9,7 +9,6 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import type { Map as MapboxMapType, GeoJSONSource } from 'mapbox-gl';
 import type { Stop, LiveVehicle, Coordinate, Journey, RouteId } from '../types';
-import { P2P_EXPRESS_STOPS, BAITY_HILL_STOPS } from '../data/p2pStops';
 import { createRouteInterpolator, type LngLat, type RouteInterpolator } from '../utils/routeInterpolation';
 import {
   easeToward,
@@ -307,6 +306,8 @@ export interface MapboxMapProps {
   routeLines: Record<RouteId, LngLat[]>;
   /** Every known pattern's line, keyed by pattern id (used to move buses). */
   patternLines: Record<number, LngLat[]>;
+  /** Ordered stops of each route's active pattern (drawn as circles). */
+  routeStops: Record<RouteId, Stop[]>;
   /** Short live-data status shown in the route card (null when live). */
   statusNote?: string | null;
   userLocation: Coordinate | null;
@@ -330,6 +331,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   vehiclesReceivedAt,
   routeLines,
   patternLines,
+  routeStops,
   statusNote = null,
   userLocation,
   userLocationResolved = false,
@@ -790,8 +792,8 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     const j = map.getSource(JOURNEY_SOURCE) as GeoJSONSource | undefined;
     const jStops = map.getSource(JOURNEY_STOPS_SOURCE) as GeoJSONSource | undefined;
     const d = map.getSource(DESTINATION_SOURCE) as GeoJSONSource | undefined;
-    if (expressStops) expressStops.setData(routeStopsToGeoJSON(P2P_EXPRESS_STOPS, selectedStopId));
-    if (baityStops) baityStops.setData(routeStopsToGeoJSON(BAITY_HILL_STOPS, selectedStopId));
+    if (expressStops) expressStops.setData(routeStopsToGeoJSON(routeStops.P2P_EXPRESS, selectedStopId));
+    if (baityStops) baityStops.setData(routeStopsToGeoJSON(routeStops.BAITY_HILL, selectedStopId));
     if (u) u.setData(userToGeoJSON(userLocation));
     if (j) j.setData(journeyToGeoJSON(activeJourney));
     if (jStops) jStops.setData(journeyStopsToGeoJSON(activeJourney));
@@ -836,7 +838,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
         /* ignore if layers not ready */
       }
     }
-  }, [mapReady, selectedStopId, userLocation, activeJourney]);
+  }, [mapReady, selectedStopId, userLocation, activeJourney, routeStops]);
 
   useEffect(() => {
     const map = mapRef.current;

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { ViewState, Stop, Coordinate, Journey } from './types';
-import { STOPS } from './data/mockTransit';
 import { findNearestStop, getDistanceMiles, UNC_CAMPUS_CENTER, SERVICE_RADIUS_MILES } from './utils/geo';
+import { activePatternKey, getActiveStops } from './utils/transitSelectors';
 import { BottomNav } from './components/BottomNav';
 import { ClosestStopCard } from './components/ClosestStopCard';
 import { BusList } from './components/BusList';
@@ -28,9 +28,12 @@ function App() {
   const [warningDismissed, setWarningDismissed] = useState(false);
   const [centerOnCampusAt, setCenterOnCampusAt] = useState<number | null>(null);
   const computedOutsideAreaRef = useRef(false);
-  const { network, vehicles, status: liveStatus, refresh, refreshing, snapshotReceivedAt } = useTransit();
+  const { network, snapshot, vehicles, status: liveStatus, refresh, refreshing, snapshotReceivedAt } = useTransit();
   const selectedBus = useMemo(() => vehicles.find((v) => v.id === selectedBusId) ?? null, [vehicles, selectedBusId]);
   const networkStops = useMemo(() => network?.stops ?? [], [network]);
+  const patternKey = activePatternKey(snapshot);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const activeStops = useMemo(() => getActiveStops(network, snapshot), [network, patternKey]);
 
   // Geolocation Setup
   useEffect(() => {
@@ -78,7 +81,7 @@ function App() {
   }, [loadingLoc, geoResolved, userLocation]);
 
   // Derived State
-  const closestStop = useMemo(() => findNearestStop(userLocation, STOPS), [userLocation]);
+  const closestStop = useMemo(() => findNearestStop(userLocation, activeStops), [userLocation, activeStops]);
 
   const handlePlanRoute = (journey: Journey) => {
     setActiveJourney(journey);
@@ -203,7 +206,7 @@ function App() {
         {view === 'map' && (
           <div className="h-full w-full relative">
             <MapView
-              stops={STOPS}
+              stops={activeStops}
               vehicles={vehicles}
               userLocation={userLocation}
               userLocationResolved={!loadingLoc}

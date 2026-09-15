@@ -4,7 +4,7 @@ import { StopPopup } from './StopPopup';
 import type { Stop, LiveVehicle, Coordinate, Journey, RouteId } from '../types';
 import type { LngLat } from '../utils/routeInterpolation';
 import { useTransit } from '../context/TransitProvider';
-import { getActivePattern } from '../utils/transitSelectors';
+import { getActivePattern, getRouteStops } from '../utils/transitSelectors';
 import { getLiveStatusMessage } from '../utils/liveStatus';
 import { X, Box, ExternalLink } from 'lucide-react';
 
@@ -54,6 +54,14 @@ export const MapView: React.FC<MapViewProps> = ({
     }),
     [expressPattern, baityPattern]
   );
+  const routeStops = useMemo<Record<RouteId, Stop[]>>(
+    () => ({
+      P2P_EXPRESS: getRouteStops(network, snapshot, 'P2P_EXPRESS'),
+      BAITY_HILL: getRouteStops(network, snapshot, 'BAITY_HILL'),
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [network, expressPattern, baityPattern]
+  );
   const patternLines = useMemo<Record<number, LngLat[]>>(() => {
     const out: Record<number, LngLat[]> = {};
     network?.routes.forEach((r) => r.patterns.forEach((p) => { out[p.id] = p.geometry.coordinates; }));
@@ -69,6 +77,7 @@ export const MapView: React.FC<MapViewProps> = ({
         vehiclesReceivedAt={snapshotReceivedAt}
         routeLines={routeLines}
         patternLines={patternLines}
+        routeStops={routeStops}
         statusNote={statusNote}
         userLocation={userLocation}
         userLocationResolved={userLocationResolved}
