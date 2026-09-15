@@ -10,7 +10,7 @@ function numOrNull(v) {
 }
 
 function isoOrNull(v) {
-  if (!v) return null;
+  if (!v || typeof v !== 'string') return null;
 
   // Extract and validate date components (YYYY-MM-DD)
   const dateMatch = v.match(/^(\d{4})-(\d{2})-(\d{2})/);

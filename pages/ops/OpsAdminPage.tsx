@@ -360,7 +360,7 @@ export function OpsAdminPage() {
                     </div>
                     <div className="p-3 rounded-xl bg-gray-50 border border-gray-100">
                       <p className="text-xs font-semibold text-gray-500">Tracker freezes</p>
-                      <p className="font-bold text-gray-900">{r?.trackerFreezesToday != null ? r.trackerFreezesToday : rid === 'P2P_EXPRESS' ? 1 : 2}</p>
+                      <p className="font-bold text-gray-900">{r?.trackerFreezesToday != null ? r.trackerFreezesToday : '—'}</p>
                     </div>
                   </div>
                 </div>

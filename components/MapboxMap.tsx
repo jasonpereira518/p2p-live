@@ -353,10 +353,12 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   const [showExpress, setShowExpress] = useState(true);
   const [showBaity, setShowBaity] = useState(true);
   const vehiclesRef = useRef<LiveVehicle[]>(vehicles);
+  const stopsRef = useRef<Stop[]>(stops);
   const receivedAtRef = useRef<number | null>(vehiclesReceivedAt);
   const patternInterpRef = useRef<Map<number, RouteInterpolator>>(new Map());
   const displayedBusesRef = useRef<Map<string, BusPosition>>(new Map());
   vehiclesRef.current = vehicles;
+  stopsRef.current = stops;
   receivedAtRef.current = vehiclesReceivedAt;
   const enabledBusRoutesRef = useRef({ showExpress: true, showBaity: true });
 
@@ -978,7 +980,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       e.originalEvent.stopPropagation();
       const id = (e.features?.[0]?.properties as any)?.busId;
       if (id) {
-        const bus = vehicles.find((v) => v.id === id);
+        const bus = vehiclesRef.current.find((v) => v.id === id);
         if (bus) onSelectBus(bus);
       }
     };
@@ -986,37 +988,43 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       e.originalEvent.stopPropagation();
       const id = (e.features?.[0]?.properties as any)?.id;
       if (id) {
-        const stop = stops.find((s) => s.id === id);
+        const stop = stopsRef.current.find((s) => s.id === id);
         if (stop) onSelectStop(stop);
       }
     };
     const onMapClickEmpty = (e: mapboxgl.MapMouseEvent) => {
       if (!e.features || e.features.length === 0) onMapClick?.();
     };
+    const onBusesMouseEnter = () => { map.getCanvas().style.cursor = 'pointer'; };
+    const onBusesMouseLeave = () => { map.getCanvas().style.cursor = 'default'; };
+    const onExpressStopsMouseEnter = () => { map.getCanvas().style.cursor = 'pointer'; };
+    const onExpressStopsMouseLeave = () => { map.getCanvas().style.cursor = 'default'; };
+    const onBaityStopsMouseEnter = () => { map.getCanvas().style.cursor = 'pointer'; };
+    const onBaityStopsMouseLeave = () => { map.getCanvas().style.cursor = 'default'; };
     map.on('click', onMapClickEmpty);
     map.on('click', BUSES_LAYER, onBus);
     map.on('click', P2P_EXPRESS_STOPS_LAYER, onStop);
     map.on('click', BAITY_HILL_STOPS_LAYER, onStop);
     map.getCanvas().style.cursor = 'default';
-    map.on('mouseenter', BUSES_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', BUSES_LAYER, () => { map.getCanvas().style.cursor = 'default'; });
-    map.on('mouseenter', P2P_EXPRESS_STOPS_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', P2P_EXPRESS_STOPS_LAYER, () => { map.getCanvas().style.cursor = 'default'; });
-    map.on('mouseenter', BAITY_HILL_STOPS_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', BAITY_HILL_STOPS_LAYER, () => { map.getCanvas().style.cursor = 'default'; });
+    map.on('mouseenter', BUSES_LAYER, onBusesMouseEnter);
+    map.on('mouseleave', BUSES_LAYER, onBusesMouseLeave);
+    map.on('mouseenter', P2P_EXPRESS_STOPS_LAYER, onExpressStopsMouseEnter);
+    map.on('mouseleave', P2P_EXPRESS_STOPS_LAYER, onExpressStopsMouseLeave);
+    map.on('mouseenter', BAITY_HILL_STOPS_LAYER, onBaityStopsMouseEnter);
+    map.on('mouseleave', BAITY_HILL_STOPS_LAYER, onBaityStopsMouseLeave);
     return () => {
       map.off('click', onMapClickEmpty);
       map.off('click', BUSES_LAYER, onBus);
       map.off('click', P2P_EXPRESS_STOPS_LAYER, onStop);
       map.off('click', BAITY_HILL_STOPS_LAYER, onStop);
-      map.off('mouseenter', BUSES_LAYER);
-      map.off('mouseleave', BUSES_LAYER);
-      map.off('mouseenter', P2P_EXPRESS_STOPS_LAYER);
-      map.off('mouseleave', P2P_EXPRESS_STOPS_LAYER);
-      map.off('mouseenter', BAITY_HILL_STOPS_LAYER);
-      map.off('mouseleave', BAITY_HILL_STOPS_LAYER);
+      map.off('mouseenter', BUSES_LAYER, onBusesMouseEnter);
+      map.off('mouseleave', BUSES_LAYER, onBusesMouseLeave);
+      map.off('mouseenter', P2P_EXPRESS_STOPS_LAYER, onExpressStopsMouseEnter);
+      map.off('mouseleave', P2P_EXPRESS_STOPS_LAYER, onExpressStopsMouseLeave);
+      map.off('mouseenter', BAITY_HILL_STOPS_LAYER, onBaityStopsMouseEnter);
+      map.off('mouseleave', BAITY_HILL_STOPS_LAYER, onBaityStopsMouseLeave);
     };
-  }, [mapReady, stops, vehicles, onSelectBus, onSelectStop, onMapClick]);
+  }, [mapReady, onSelectBus, onSelectStop, onMapClick]);
 
   enabledBusRoutesRef.current = { showExpress, showBaity };
 

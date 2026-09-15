@@ -61,6 +61,11 @@ describe('normalizeVehicle', () => {
     const v = n.normalizeVehicle({ id: 5, lat: 1, lon: 2, lastUpdated: '2015-02-31T21:49:48.198Z' }, EXPRESS, NOW);
     expect(v).toMatchObject({ name: 'Bus 5', patternId: null, speedMps: null, capacity: null, load: null, lastUpdated: null, stale: false, heading: 0 });
   });
+
+  it('does not throw on a non-string lastUpdated and normalizes it to null', () => {
+    const v = n.normalizeVehicle({ id: 6, lat: 1, lon: 2, lastUpdated: 1234567890 }, EXPRESS, NOW);
+    expect(v).toMatchObject({ lastUpdated: null, stale: false });
+  });
 });
 
 describe('buildArrivalIndexes + attachUpcomingStops', () => {
