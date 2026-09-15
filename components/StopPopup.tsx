@@ -10,6 +10,7 @@ import { useStopArrivals, useTransit } from '../context/TransitProvider';
 import { activePatternKey, getRoutesServingStop } from '../utils/transitSelectors';
 import { ROUTE_NAMES } from '../data/routes';
 import { getWalkDirections } from '../utils/multimodalRouting';
+import { getStopMessages } from '../utils/serviceMessages';
 import { getDistanceMeters, getWalkTimeMinutes } from '../utils/geo';
 import { formatEta } from '../utils/format';
 import { ArrivalSourceTag } from './ArrivalSourceTag';
@@ -43,6 +44,7 @@ export function StopPopup({
   );
 
   const arrivals = useStopArrivals(stop.id, 5);
+  const stopMessages = getStopMessages(snapshot?.messages ?? [], stop.id);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -126,6 +128,17 @@ export function StopPopup({
             <X size={20} />
           </button>
         </div>
+
+        {stopMessages.length > 0 && (
+          <section className="mt-3 space-y-2" aria-label="Service alerts">
+            {stopMessages.map((m) => (
+              <div key={m.id} className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2">
+                <p className="text-sm font-semibold text-sky-900">{m.title}</p>
+                {m.body && <p className="text-xs text-sky-800/90 mt-0.5">{m.body}</p>}
+              </div>
+            ))}
+          </section>
+        )}
 
         <section className="mt-4" aria-labelledby="arrivals-heading">
           <h3 id="arrivals-heading" className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">

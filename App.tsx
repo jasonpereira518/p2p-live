@@ -12,6 +12,7 @@ import { AppHeader } from './components/AppHeader';
 import { RefreshCw, X } from 'lucide-react';
 import { useTransit } from './context/TransitProvider';
 import { LiveStatusBanner } from './components/LiveStatusBanner';
+import { ServiceMessageBanner } from './components/ServiceMessageBanner';
 
 // Default to UNC Student Union if geo denied
 const DEFAULT_LOCATION: Coordinate = { lat: 35.9105, lon: -79.0478 };
@@ -109,8 +110,9 @@ function App() {
       {/* Main Content Area: flex-1 min-h-0 so list can scroll */}
       <main className="flex-1 min-h-0 flex flex-col relative">
         {/* Outside service area notice (informational only) */}
-        {outsideAreaMiles != null && outsideAreaMiles > SERVICE_RADIUS_MILES && !warningDismissed && (
-          <div className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-center px-4">
+        <div className="pointer-events-none absolute inset-x-0 top-2 z-30 flex flex-col items-center gap-2 px-4">
+          <ServiceMessageBanner />
+          {outsideAreaMiles != null && outsideAreaMiles > SERVICE_RADIUS_MILES && !warningDismissed && (
             <div className="pointer-events-auto w-full max-w-md rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 shadow-sm relative">
               <button
                 type="button"
@@ -140,8 +142,8 @@ function App() {
                 Center Map on UNC
               </button>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {view === 'list' && (
           <div
