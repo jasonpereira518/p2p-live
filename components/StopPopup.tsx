@@ -3,18 +3,17 @@
  * Dismissible via X, Escape, or click-outside (handled by parent).
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { X, Navigation, List } from 'lucide-react';
-import type { Stop, Coordinate, Journey } from '../types';
-import { getRoutesServedForStop } from '../data/p2pStops';
+import type { Stop, Coordinate, Journey, LineStringGeometry } from '../types';
+import { useStopArrivals, useTransit } from '../context/TransitProvider';
+import { activePatternKey, getRoutesServingStop } from '../utils/transitSelectors';
+import { ROUTE_NAMES } from '../data/routes';
 import { getWalkDirections } from '../utils/multimodalRouting';
+import { getStopMessages } from '../utils/serviceMessages';
 import { getDistanceMeters, getWalkTimeMinutes } from '../utils/geo';
-import { getUpcomingRouteArrivals, isRouteOperatingNow } from '../utils/serviceSchedule';
-
-export interface ArrivalItem {
-  routeName: string;
-  etaMin: number;
-}
+import { formatEta } from '../utils/format';
+import { ArrivalSourceTag } from './ArrivalSourceTag';
 
 interface StopPopupProps {
   stop: Stop;
@@ -33,27 +32,19 @@ export function StopPopup({
   onWalkToStop,
   onViewOnList,
 }: StopPopupProps) {
-  const [arrivals, setArrivals] = useState<ArrivalItem[] | null>(null);
-  const [arrivalsLoading, setArrivalsLoading] = useState(true);
-  const [arrivalsError, setArrivalsError] = useState(false);
   const [walkLoading, setWalkLoading] = useState(false);
   const [walkError, setWalkError] = useState<string | null>(null);
 
-  const routesServed = getRoutesServedForStop(stop);
+  const { network, snapshot } = useTransit();
+  const patternKey = activePatternKey(snapshot);
+  const routesServed = useMemo(
+    () => getRoutesServingStop(network, snapshot, stop.id).map((routeId) => ROUTE_NAMES[routeId]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [network, patternKey, stop.id]
+  );
 
-  useEffect(() => {
-    setArrivalsLoading(true);
-    setArrivalsError(false);
-    const next = routesServed
-      .filter((name) => isRouteOperatingNow(name))
-      .flatMap((routeName) =>
-        getUpcomingRouteArrivals(routeName, new Date(), 3).map((etaMin) => ({ routeName, etaMin }))
-      )
-      .sort((a, b) => a.etaMin - b.etaMin)
-      .slice(0, 5);
-    setArrivals(next);
-    setArrivalsLoading(false);
-  }, [routesServed]);
+  const arrivals = useStopArrivals(stop.id, 5);
+  const stopMessages = getStopMessages(snapshot?.messages ?? [], stop.id);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -92,7 +83,7 @@ export function StopPopup({
             distanceMeters: result.distanceMeters,
             durationMin,
             instruction: `Walk to ${stop.name}`,
-            geometry: result.geometry,
+            geometry: result.geometry as LineStringGeometry,
             steps: result.steps ?? [],
           },
         ],
@@ -138,24 +129,33 @@ export function StopPopup({
           </button>
         </div>
 
+        {stopMessages.length > 0 && (
+          <section className="mt-3 space-y-2" aria-label="Service alerts">
+            {stopMessages.map((m) => (
+              <div key={m.id} className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2">
+                <p className="text-sm font-semibold text-sky-900">{m.title}</p>
+                {m.body && <p className="text-xs text-sky-800/90 mt-0.5">{m.body}</p>}
+              </div>
+            ))}
+          </section>
+        )}
+
         <section className="mt-4" aria-labelledby="arrivals-heading">
           <h3 id="arrivals-heading" className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">
             Next arrivals
           </h3>
-          {arrivalsLoading ? (
-            <div className="space-y-2">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-6 bg-gray-100 rounded animate-pulse" />
-              ))}
-            </div>
-          ) : arrivalsError ? (
-            <p className="text-sm text-amber-700">Could not load arrivals.</p>
-          ) : arrivals && arrivals.length > 0 ? (
+          {arrivals.length > 0 ? (
             <ul className="space-y-1">
-              {arrivals.slice(0, 5).map((a, i) => (
-                <li key={i} className="text-sm text-gray-700 flex justify-between">
-                  <span>{a.routeName}</span>
-                  <span>{a.etaMin} min</span>
+              {arrivals.map((a, i) => (
+                <li
+                  key={`${a.routeId}-${a.vehicleId ?? 'sched'}-${i}`}
+                  className="text-sm text-gray-700 flex justify-between items-center gap-2"
+                >
+                  <span className="flex items-center gap-2">
+                    {a.routeName}
+                    <ArrivalSourceTag source={a.source} />
+                  </span>
+                  <span className="font-semibold">{formatEta(a.etaSec)}</span>
                 </li>
               ))}
             </ul>

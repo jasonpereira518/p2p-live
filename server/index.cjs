@@ -1,5 +1,5 @@
 /**
- * Small API server for ops features that require server-side only (e.g. Gemini, Mapbox Directions).
+ * Small API server: live transit (GMV), Mapbox geocoding/walking, Gemini summaries.
  * GEMINI_API_KEY / MAPBOX_TOKEN must be set in environment; never exposed to client.
  */
 
@@ -8,24 +8,23 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 const http = require('http');
-const path = require('path');
-const fs = require('fs');
+const { createGmvClient } = require('./gmv/client.cjs');
+const { createGmvService } = require('./gmv/service.cjs');
 
 const PORT = process.env.PORT || process.env.OPS_API_PORT || 3001;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
 const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN;
+const GMV_RTPI_API_KEY = process.env.GMV_RTPI_API_KEY;
+const gmv = createGmvService({ client: createGmvClient({ apiKey: GMV_RTPI_API_KEY }) });
 const CACHE_TTL_MS = 60 * 1000; // 60 seconds
-const ROUTE_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const WALK_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
-let routeCache = Object.create(null);
 let walkCache = Object.create(null);
 
 // Lightweight in-process diagnostics counters (reset on server restart).
 let failedLlmCalls = 0;
 let directionsFailures = 0;
-let routeDirectionsFailures = 0;
 
 function roundCoord(c, decimals = 5) {
   return [Number(c[0].toFixed(decimals)), Number(c[1].toFixed(decimals))];
@@ -35,104 +34,6 @@ function walkCacheKey(from, to) {
   const a = roundCoord(from);
   const b = roundCoord(to);
   return `${a[0]},${a[1]}-${b[0]},${b[1]}`;
-}
-
-function loadRouteWaypoints() {
-  const p = path.join(__dirname, 'routeWaypoints.json');
-  return JSON.parse(fs.readFileSync(p, 'utf8'));
-}
-
-function hashCoords(coords) {
-  let h = 0;
-  const str = JSON.stringify(coords);
-  for (let i = 0; i < str.length; i++) {
-    h = (h << 5) - h + str.charCodeAt(i);
-    h |= 0;
-  }
-  return String(h);
-}
-
-async function fetchMapboxRoute(routeId, coords) {
-  if (!MAPBOX_TOKEN) throw new Error('MAPBOX_TOKEN is not set');
-  const maxWaypoints = 25;
-  const coordStr = coords.map((c) => c.join(',')).join(';');
-  if (coords.length > maxWaypoints) {
-    const chunks = [];
-    for (let i = 0; i < coords.length; i += maxWaypoints - 1) {
-      const chunk = coords.slice(i, i + maxWaypoints);
-      chunks.push(chunk);
-    }
-    const allCoords = [];
-    let totalDistance = 0;
-    let totalDuration = 0;
-    for (let i = 0; i < chunks.length; i++) {
-      const chunkCoords = chunks[i].map((c) => c.join(',')).join(';');
-      const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${chunkCoords}?geometries=geojson&overview=full&steps=false&access_token=${encodeURIComponent(MAPBOX_TOKEN)}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Mapbox Directions ${res.status}: ${await res.text()}`);
-      const data = await res.json();
-      const route = data.routes?.[0];
-      const geom = route?.geometry;
-      if (!geom || !geom.coordinates) throw new Error('Invalid Mapbox response');
-      if (i === 0) allCoords.push(...geom.coordinates);
-      else allCoords.push(...geom.coordinates.slice(1));
-      totalDistance += route?.distance != null ? route.distance : 0;
-      totalDuration += route?.duration != null ? route.duration : 0;
-    }
-    return {
-      geometry: { type: 'LineString', coordinates: allCoords },
-      distanceMeters: totalDistance,
-      durationSec: totalDuration,
-    };
-  }
-  const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordStr}?geometries=geojson&overview=full&steps=false&access_token=${encodeURIComponent(MAPBOX_TOKEN)}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Mapbox Directions ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  const route = data.routes?.[0];
-  const geom = route?.geometry;
-  if (!geom || !geom.coordinates) throw new Error('Invalid Mapbox response');
-  return {
-    geometry: geom,
-    distanceMeters: route?.distance != null ? route.distance : 0,
-    durationSec: route?.duration != null ? route.duration : 0,
-  };
-}
-
-async function handleMapboxRoute(routeId, res) {
-  const waypointsData = loadRouteWaypoints();
-  const coords = waypointsData[routeId];
-  if (!coords || !Array.isArray(coords)) {
-    res.writeHead(400, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Unknown routeId' }));
-    return;
-  }
-  const cacheKey = routeId + ':' + hashCoords(coords);
-  const cached = routeCache[cacheKey];
-  if (cached && Date.now() - cached.at < ROUTE_CACHE_TTL_MS) {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(cached.payload));
-    return;
-  }
-  try {
-    const { geometry, distanceMeters, durationSec } = await fetchMapboxRoute(routeId, coords);
-    const waypoints = coords.map((c, i) => ({ name: `Stop ${i + 1}`, coordinates: c, order: i }));
-    const payload = {
-      routeId,
-      geometry: { type: geometry.type, coordinates: geometry.coordinates },
-      waypoints,
-      distanceMeters,
-      durationSec,
-    };
-    routeCache[cacheKey] = { payload, at: Date.now() };
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(payload));
-  } catch (err) {
-    console.error('Mapbox route error:', err.message);
-    routeDirectionsFailures += 1;
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: err.message, routeId }));
-  }
 }
 
 async function fetchMapboxWalking(fromLngLat, toLngLat) {
@@ -176,25 +77,6 @@ async function handleWalkDirections(fromLngLat, toLngLat, res) {
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: err.message }));
   }
-}
-
-function getMockArrivals(stopId) {
-  const routeNames = ['P2P Express', 'Baity Hill'];
-  const hash = (s) => {
-    let h = 0;
-    for (let i = 0; i < s.length; i++) h = ((h << 5) - h) + s.charCodeAt(i) | 0;
-    return Math.abs(h);
-  };
-  const seed = hash(stopId);
-  const count = 3 + (seed % 3);
-  const out = [];
-  for (let i = 0; i < count; i++) {
-    const routeName = routeNames[(seed + i) % routeNames.length];
-    const etaMin = 2 + (seed % 5) + i * (4 + (seed % 4));
-    out.push({ routeName, etaMin });
-  }
-  out.sort((a, b) => a.etaMin - b.etaMin);
-  return out;
 }
 
 let summaryCache = null;
@@ -475,6 +357,38 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  const pathname = (req.url || '').split('?')[0];
+
+  if (pathname === '/api/live/network' && req.method === 'GET') {
+    gmv
+      .getNetwork()
+      .then((network) => {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' });
+        res.end(JSON.stringify(network));
+      })
+      .catch((err) => {
+        console.error('GMV network error:', err.message);
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Transit network unavailable' }));
+      });
+    return;
+  }
+
+  if (pathname === '/api/live/snapshot' && req.method === 'GET') {
+    gmv
+      .getSnapshot()
+      .then((snapshot) => {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify(snapshot));
+      })
+      .catch((err) => {
+        console.error('GMV snapshot error:', err.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Snapshot failed' }));
+      });
+    return;
+  }
+
   if (req.url === '/api/admin/diagnostics' && req.method === 'GET') {
     const mem = process.memoryUsage();
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -485,15 +399,15 @@ const server = http.createServer((req, res) => {
           mapboxTokenConfigured: !!MAPBOX_TOKEN,
           geminiKeyConfigured: !!GEMINI_API_KEY,
           geminiModel: GEMINI_MODEL,
+          gmvKeyConfigured: !!GMV_RTPI_API_KEY,
         },
+        gmv: gmv.diagnostics(),
         cache: {
-          routeCacheEntries: Object.keys(routeCache || {}).length,
           walkCacheEntries: Object.keys(walkCache || {}).length,
         },
         errors: {
           failedLlmCalls,
           directionsFailures,
-          routeDirectionsFailures,
         },
         memory: {
           rssMb: Math.round(mem.rss / 1024 / 1024),
@@ -564,18 +478,6 @@ const server = http.createServer((req, res) => {
       });
     return;
   }
-  const routeMatch = req.url && req.method === 'GET' && req.url.startsWith('/api/mapbox/route');
-  if (routeMatch) {
-    const u = new URL(req.url, 'http://localhost');
-    const routeId = u.searchParams.get('routeId');
-    if (routeId === 'P2P_EXPRESS' || routeId === 'BAITY_HILL') {
-      handleMapboxRoute(routeId, res);
-      return;
-    }
-    res.writeHead(400, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'routeId must be P2P_EXPRESS or BAITY_HILL' }));
-    return;
-  }
   const walkMatch = req.url && req.method === 'GET' && req.url.startsWith('/api/mapbox/directions/walk');
   if (walkMatch) {
     const u = new URL(req.url, 'http://localhost');
@@ -594,20 +496,6 @@ const server = http.createServer((req, res) => {
       return;
     }
     handleWalkDirections([fromParts[0], fromParts[1]], [toParts[0], toParts[1]], res);
-    return;
-  }
-  const arrivalsMatch = req.url && req.method === 'GET' && req.url.startsWith('/api/arrivals');
-  if (arrivalsMatch) {
-    const u = new URL(req.url, 'http://localhost');
-    const stopId = u.searchParams.get('stopId');
-    if (!stopId || !stopId.trim()) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Missing stopId' }));
-      return;
-    }
-    const arrivals = getMockArrivals(stopId.trim());
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ arrivals }));
     return;
   }
   if (req.url === '/api/admin-optimization-summary' && req.method === 'POST') {
@@ -633,7 +521,10 @@ server.listen(PORT, "0.0.0.0", () => {
     console.warn('Warning: GEMINI_API_KEY not set. /api/ops/complaints/summary will return 500.');
   }
   if (!MAPBOX_TOKEN) {
-    console.warn('Warning: MAPBOX_TOKEN not set. /api/mapbox/route will return 500.');
+    console.warn('Warning: MAPBOX_TOKEN not set. geocoding and walking directions will return 500.');
+  }
+  if (!GMV_RTPI_API_KEY) {
+    console.warn('Warning: GMV_RTPI_API_KEY not set. /api/live/* will report status "unavailable".');
   }
   console.log(`API server listening on port ${PORT}`);
 });

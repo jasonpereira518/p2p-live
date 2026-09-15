@@ -5,7 +5,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import type { Map as MapboxMapType } from 'mapbox-gl';
-import { ROUTE_CONFIGS } from '../../data/routeConfig';
+import { useTransit } from '../../context/TransitProvider';
+import { getActivePattern } from '../../utils/transitSelectors';
+import { ROUTE_COLORS, routeIdFromName } from '../../data/routes';
 
 const DEFAULT_CENTER: [number, number] = [-79.0478, 35.9105];
 const DRIVER_SOURCE = 'driver-location-source';
@@ -26,13 +28,12 @@ export function DriverLocationMap({ className = '', height = 240, routeName }: D
   const mapRef = useRef<MapboxMapType | null>(null);
   const [position, setPosition] = useState<{ lat: number; lon: number } | null>(null);
   const [loading, setLoading] = useState(true);
-  const matchedRoute = routeName
-    ? ROUTE_CONFIGS.find((route) => route.routeName.toLowerCase() === routeName.toLowerCase())
-    : null;
-  const routeCoords = matchedRoute?.stops
-    .slice()
-    .sort((a, b) => a.index - b.index)
-    .map((stop) => stop.coord) ?? [];
+  const { network, snapshot } = useTransit();
+  const routeId = routeName ? routeIdFromName(routeName) : null;
+  const routeColor = routeId ? ROUTE_COLORS[routeId] : undefined;
+  const routeCoords: [number, number][] = routeId
+    ? getActivePattern(network, snapshot, routeId)?.geometry.coordinates ?? []
+    : [];
   const routeGeometryKey = routeCoords.map(([lng, lat]) => `${lng},${lat}`).join('|');
 
   useEffect(() => {
@@ -66,7 +67,7 @@ export function DriverLocationMap({ className = '', height = 240, routeName }: D
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
     map.on('load', () => {
       if (routeCoords.length > 1) {
-        const routeLineCoords = [...routeCoords, routeCoords[0]];
+        const routeLineCoords = routeCoords;
         map.addSource(DRIVER_ROUTE_SOURCE, {
           type: 'geojson',
           data: {
@@ -89,7 +90,7 @@ export function DriverLocationMap({ className = '', height = 240, routeName }: D
             'line-join': 'round',
           },
           paint: {
-            'line-color': matchedRoute?.routeColor ?? '#418FC5',
+            'line-color': routeColor ?? '#418FC5',
             'line-width': 4,
             'line-opacity': 0.85,
           },
@@ -133,7 +134,7 @@ export function DriverLocationMap({ className = '', height = 240, routeName }: D
       map.remove();
       mapRef.current = null;
     };
-  }, [token, position?.lat, position?.lon, routeGeometryKey, matchedRoute?.routeColor]);
+  }, [token, position?.lat, position?.lon, routeGeometryKey, routeColor]);
 
   if (!token) {
     return (

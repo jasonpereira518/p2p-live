@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
-import { ViewState, Vehicle, Stop, Coordinate, Journey } from './types';
-import { STOPS, VEHICLES } from './data/mockTransit';
+import { ViewState, Stop, Coordinate, Journey } from './types';
 import { findNearestStop, getDistanceMiles, UNC_CAMPUS_CENTER, SERVICE_RADIUS_MILES } from './utils/geo';
+import { activePatternKey, getActiveStops } from './utils/transitSelectors';
 import { BottomNav } from './components/BottomNav';
 import { ClosestStopCard } from './components/ClosestStopCard';
 import { BusList } from './components/BusList';
@@ -10,7 +10,9 @@ import { MapView } from './components/MapView';
 import { PlanTripView } from './components/PlanTripView';
 import { AppHeader } from './components/AppHeader';
 import { RefreshCw, X } from 'lucide-react';
-import { isRouteOperatingNow } from './utils/serviceSchedule';
+import { useTransit } from './context/TransitProvider';
+import { LiveStatusBanner } from './components/LiveStatusBanner';
+import { ServiceMessageBanner } from './components/ServiceMessageBanner';
 
 // Default to UNC Student Union if geo denied
 const DEFAULT_LOCATION: Coordinate = { lat: 35.9105, lon: -79.0478 };
@@ -18,7 +20,7 @@ const DEFAULT_LOCATION: Coordinate = { lat: 35.9105, lon: -79.0478 };
 function App() {
   const [view, setView] = useState<ViewState>('list');
   const [userLocation, setUserLocation] = useState<Coordinate>(DEFAULT_LOCATION);
-  const [selectedBus, setSelectedBus] = useState<Vehicle | null>(null);
+  const [selectedBusId, setSelectedBusId] = useState<string | null>(null);
   const [selectedStop, setSelectedStop] = useState<Stop | null>(null);
   const [activeJourney, setActiveJourney] = useState<Journey | null>(null);
   const [loadingLoc, setLoadingLoc] = useState(true);
@@ -27,10 +29,12 @@ function App() {
   const [warningDismissed, setWarningDismissed] = useState(false);
   const [centerOnCampusAt, setCenterOnCampusAt] = useState<number | null>(null);
   const computedOutsideAreaRef = useRef(false);
-  const [vehicles, setVehicles] = useState<Vehicle[]>(VEHICLES);
-  const [refreshLoading, setRefreshLoading] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
-  const [clockTickMs, setClockTickMs] = useState(() => Date.now());
+  const { network, snapshot, vehicles, status: liveStatus, refresh, refreshing, snapshotReceivedAt } = useTransit();
+  const selectedBus = useMemo(() => vehicles.find((v) => v.id === selectedBusId) ?? null, [vehicles, selectedBusId]);
+  const networkStops = useMemo(() => network?.stops ?? [], [network]);
+  const patternKey = activePatternKey(snapshot);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const activeStops = useMemo(() => getActiveStops(network, snapshot), [network, patternKey]);
 
   // Geolocation Setup
   useEffect(() => {
@@ -52,11 +56,6 @@ function App() {
     } else {
       setLoadingLoc(false);
     }
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setClockTickMs(Date.now()), 60000);
-    return () => window.clearInterval(timer);
   }, []);
 
   // Distance warning dismissal persistence (session-scoped)
@@ -83,11 +82,7 @@ function App() {
   }, [loadingLoc, geoResolved, userLocation]);
 
   // Derived State
-  const closestStop = useMemo(() => findNearestStop(userLocation, STOPS), [userLocation]);
-  const activeVehicles = useMemo(
-    () => vehicles.filter((v) => isRouteOperatingNow(v.routeId, new Date(clockTickMs))),
-    [vehicles, clockTickMs]
-  );
+  const closestStop = useMemo(() => findNearestStop(userLocation, activeStops), [userLocation, activeStops]);
 
   const handlePlanRoute = (journey: Journey) => {
     setActiveJourney(journey);
@@ -96,18 +91,6 @@ function App() {
   const handleViewOnMap = () => {
     setView('map');
   };
-
-  const handleRefreshEtas = useCallback(async () => {
-    setRefreshLoading(true);
-    try {
-      // TODO: replace with real API when available, e.g. fetch('/api/vehicles/etas')
-      await new Promise((r) => setTimeout(r, 800));
-      setVehicles((prev) => [...prev]);
-      setLastUpdated(Date.now());
-    } finally {
-      setRefreshLoading(false);
-    }
-  }, []);
 
   const dismissDistanceWarning = useCallback(() => {
     setWarningDismissed(true);
@@ -127,8 +110,9 @@ function App() {
       {/* Main Content Area: flex-1 min-h-0 so list can scroll */}
       <main className="flex-1 min-h-0 flex flex-col relative">
         {/* Outside service area notice (informational only) */}
-        {outsideAreaMiles != null && outsideAreaMiles > SERVICE_RADIUS_MILES && !warningDismissed && (
-          <div className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-center px-4">
+        <div className="pointer-events-none absolute inset-x-0 top-2 z-30 flex flex-col items-center gap-2 px-4">
+          <ServiceMessageBanner />
+          {outsideAreaMiles != null && outsideAreaMiles > SERVICE_RADIUS_MILES && !warningDismissed && (
             <div className="pointer-events-auto w-full max-w-md rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 shadow-sm relative">
               <button
                 type="button"
@@ -158,22 +142,22 @@ function App() {
                 Center Map on UNC
               </button>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {view === 'list' && (
           <div
             className="flex-1 min-h-0 overflow-y-auto no-scrollbar pb-20"
             style={{ WebkitOverflowScrolling: 'touch' }}
           >
+            <LiveStatusBanner status={liveStatus} className="px-4 pt-4" />
             {/* Closest Stop section: same horizontal padding as Active Buses */}
             {closestStop && (
               <div className="px-4 pt-4 pb-2">
                 <h2 className="text-gray-900 font-bold text-lg mb-1">Closest Stop to You</h2>
-                <ClosestStopCard 
-                  stop={closestStop} 
-                  userLocation={userLocation} 
-                  vehicles={activeVehicles}
+                <ClosestStopCard
+                  stop={closestStop}
+                  userLocation={userLocation}
                 />
               </div>
             )}
@@ -181,27 +165,27 @@ function App() {
             <div className="px-4 pt-6 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <h2 className="text-gray-900 font-bold text-lg">Active Buses</h2>
-                {lastUpdated != null && (
+                {snapshotReceivedAt != null && (
                   <span className="text-xs text-gray-400">
-                    Updated {lastUpdated > Date.now() - 60000 ? 'just now' : new Date(lastUpdated).toLocaleTimeString()}
+                    Updated {snapshotReceivedAt > Date.now() - 60000 ? 'just now' : new Date(snapshotReceivedAt).toLocaleTimeString()}
                   </span>
                 )}
               </div>
               <button
                 type="button"
-                onClick={handleRefreshEtas}
-                disabled={refreshLoading}
+                onClick={() => { void refresh(); }}
+                disabled={refreshing}
                 className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-p2p-light-blue/50 text-p2p-blue text-sm font-semibold hover:bg-p2p-light-blue/70 disabled:opacity-60 disabled:pointer-events-none"
                 aria-label="Refresh ETAs"
               >
-                <RefreshCw size={18} className={refreshLoading ? 'animate-spin' : ''} />
+                <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
                 Refresh
               </button>
             </div>
-            <BusList 
-              vehicles={activeVehicles} 
-              stops={STOPS} 
-              onSelectBus={(bus) => setSelectedBus(bus)}
+            <BusList
+              vehicles={vehicles}
+              stops={networkStops}
+              onSelectBus={(bus) => setSelectedBusId(bus.id)}
             />
           </div>
         )}
@@ -222,14 +206,14 @@ function App() {
         
         {view === 'map' && (
           <div className="h-full w-full relative">
-            <MapView 
-              stops={STOPS}
-              vehicles={activeVehicles}
+            <MapView
+              stops={activeStops}
+              vehicles={vehicles}
               userLocation={userLocation}
               userLocationResolved={!loadingLoc}
               centerOnCampusAt={centerOnCampusAt}
               onSelectBus={(bus) => {
-                setSelectedBus(bus);
+                setSelectedBusId(bus.id);
                 setSelectedStop(null);
               }}
               onSelectStop={(stop) => {
@@ -247,12 +231,14 @@ function App() {
       </main>
 
       {/* Shared Overlays */}
-      <BusDetailSheet 
-        vehicle={selectedBus} 
-        stops={STOPS}
-        userLocation={userLocation}
-        onClose={() => setSelectedBus(null)} 
-      />
+      {selectedBus && (
+        <BusDetailSheet
+          vehicle={selectedBus}
+          stops={networkStops}
+          userLocation={userLocation}
+          onClose={() => setSelectedBusId(null)}
+        />
+      )}
 
       <BottomNav currentView={view} onChangeView={setView} />
     </div>

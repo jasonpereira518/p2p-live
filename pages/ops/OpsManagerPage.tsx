@@ -6,18 +6,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { OpsLayout } from '../../ops/OpsLayout';
 import {
-  MOCK_FLEET_SUMMARY,
-  MOCK_ACTIVE_ROUTES,
   MOCK_FLEET_STATUS,
-  MOCK_FLEET_STATUS_ROWS,
   MOCK_COUNTS_DATE,
   MOCK_COUNTS_ROWS,
   MOCK_COMPLAINTS,
-  MOCK_STAT_ACTIVE_BUSES,
   MOCK_STAT_DRIVERS_LOGGED_IN,
   MOCK_STAT_BOARDINGS_TODAY,
   MOCK_STAT_NEW_COMPLAINTS,
-  MOCK_STAT_OFF_ROUTE_BUSES,
   MOCK_RIDERSHIP,
 } from '../../data/mockOps';
 import { listAdmins, listManagers, listDrivers } from '../../ops/peopleStore';
@@ -34,8 +29,10 @@ import { getRosterName, getRosterAvatar } from '../../data/opsRoster';
 import { ComplaintsSummaryCard } from '../../components/ops/ComplaintsSummaryCard';
 import { Avatar } from '../../components/ops/Avatar';
 import { Bus, Users, TrendingUp, AlertCircle, MapPin, Download } from 'lucide-react';
-import { VEHICLES } from '../../data/mockTransit';
+import { useTransit } from '../../context/TransitProvider';
 import { formatShiftDuration } from '../../utils/format';
+import { buildFleetRows } from '../../utils/fleet';
+import { ROUTE_IDS, ROUTE_NAMES } from '../../data/routes';
 import {
   ensureSeededTimesheetsAndSchedule,
   getSeededTimesheets,
@@ -45,6 +42,10 @@ import {
 } from '../../storage/timesheetsSeed';
 
 export function OpsManagerPage() {
+  const { network, vehicles, status: liveStatus, snapshotReceivedAt } = useTransit();
+  const fleetRows = useMemo(() => buildFleetRows(vehicles, network), [vehicles, network]);
+  const offRouteCount = fleetRows.filter((r) => r.isOffRoute).length;
+  const trackingStale = liveStatus === 'degraded' || liveStatus === 'unavailable';
   const [activeTab, setActiveTab] = useState<OpsTabId>('dashboard');
   const [complaintStates, setComplaintStates] = useState(() => getComplaintStates());
   const [flaggedNotes, setFlaggedNotes] = useState<Record<string, boolean>>({});
@@ -228,11 +229,11 @@ export function OpsManagerPage() {
         <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
           <div className="max-w-6xl mx-auto p-4 md:p-6 space-y-6 pb-8">
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
-              <StatCard label="Active buses" value={MOCK_STAT_ACTIVE_BUSES} accent="blue" icon={<Bus size={24} />} />
+              <StatCard label="Active buses" value={vehicles.length} accent="blue" icon={<Bus size={24} />} />
               <StatCard label="Drivers logged in" value={MOCK_STAT_DRIVERS_LOGGED_IN} accent="green" icon={<Users size={24} />} />
               <StatCard label="Boardings today" value={MOCK_STAT_BOARDINGS_TODAY} accent="purple" icon={<TrendingUp size={24} />} />
               <StatCard label="New complaints" value={MOCK_STAT_NEW_COMPLAINTS} accent="red" icon={<AlertCircle size={24} />} />
-              <StatCard label="Off-route buses" value={MOCK_STAT_OFF_ROUTE_BUSES} subtext="bus(es) off route" accent="amber" icon={<MapPin size={24} />} />
+              <StatCard label="Off-route buses" value={offRouteCount} subtext="bus(es) off route" accent="amber" icon={<MapPin size={24} />} />
             </div>
 
             {activeTab === 'dashboard' && (
@@ -240,30 +241,43 @@ export function OpsManagerPage() {
                 <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
                   <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500 mb-3">Live Fleet</h2>
                   <div className="flex flex-wrap items-center gap-4">
-                    <p className="text-2xl font-bold text-gray-900">{MOCK_FLEET_SUMMARY.activeBuses} active buses</p>
-                    <p className="text-sm text-gray-500">Last update: {new Date(MOCK_FLEET_SUMMARY.lastUpdateAt).toLocaleTimeString()}</p>
-                    {MOCK_FLEET_SUMMARY.trackingStale && <span className="px-2 py-1 rounded-lg text-xs font-semibold bg-amber-500/20 text-amber-800">Tracking stale</span>}
+                    <p className="text-2xl font-bold text-gray-900">{vehicles.length} active buses</p>
+                    <p className="text-sm text-gray-500">
+                      Last update: {snapshotReceivedAt != null ? new Date(snapshotReceivedAt).toLocaleTimeString() : '—'}
+                    </p>
+                    {trackingStale && <span className="px-2 py-1 rounded-lg text-xs font-semibold bg-amber-500/20 text-amber-800">Tracking stale</span>}
                   </div>
                   <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
                     <ul className="text-sm text-gray-600 space-y-1">
-                      {VEHICLES.slice(0, 4).map((v) => (
-                        <li key={v.id}>{v.id} · {v.routeName}</li>
-                      ))}
+                      {vehicles.length === 0 ? (
+                        <li className="text-gray-400">No buses reporting</li>
+                      ) : (
+                        vehicles.map((v) => <li key={v.id}>{v.name} · {v.routeName}</li>)
+                      )}
                     </ul>
                   </div>
                 </div>
                 <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
                   <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500 mb-3">Active Routes</h2>
                   <div className="grid gap-4 md:grid-cols-2">
-                    {MOCK_ACTIVE_ROUTES.map((r) => (
-                      <div key={r.id} className="p-4 rounded-xl border border-gray-100 flex items-center justify-between">
-                        <div>
-                          <p className="font-bold text-gray-900">{r.name}</p>
-                          <p className="text-sm text-gray-500">{r.activeBuses} buses · {r.nextArrivalSummary}</p>
+                    {ROUTE_IDS.map((routeId) => {
+                      const count = vehicles.filter((v) => v.routeId === routeId).length;
+                      return (
+                        <div key={routeId} className="p-4 rounded-xl border border-gray-100 flex items-center justify-between">
+                          <div>
+                            <p className="font-bold text-gray-900">{ROUTE_NAMES[routeId]}</p>
+                            <p className="text-sm text-gray-500">{count} {count === 1 ? 'bus' : 'buses'} reporting</p>
+                          </div>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                              count > 0 ? 'bg-emerald-500/20 text-emerald-800' : 'bg-gray-100 text-gray-600'
+                            }`}
+                          >
+                            {count > 0 ? 'running' : 'no service'}
+                          </span>
                         </div>
-                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-800">{r.status}</span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
                 <div className="grid gap-6 md:grid-cols-2">
@@ -303,18 +317,25 @@ export function OpsManagerPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {MOCK_FLEET_STATUS_ROWS.map((row) => (
+                      {fleetRows.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className="py-6 px-4 text-center text-gray-500">No buses reporting right now</td>
+                        </tr>
+                      )}
+                      {fleetRows.map((row) => (
                         <tr key={row.busId} className="border-b border-gray-50">
                           <td className="py-3 px-4 font-medium text-gray-900">{row.busLabel}</td>
                           <td className="py-3 px-4 text-gray-600">{row.routeName} · {row.runLabel}</td>
-                          <td className="py-3 px-4 w-40"><CapacityBar current={row.capacityCurrent} max={row.capacityMax} /></td>
+                          <td className="py-3 px-4 w-40">
+                            {row.capacityMax > 0 ? <CapacityBar current={row.capacityCurrent} max={row.capacityMax} /> : <span className="text-gray-400">—</span>}
+                          </td>
                           <td className="py-3 px-4">{row.isOffRoute ? <span className="px-2 py-0.5 rounded text-xs font-semibold bg-amber-500/20 text-amber-800">Off route</span> : '—'}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-                <p className="px-4 py-3 text-xs text-gray-500 border-t border-gray-50">Bars show capacity; &apos;Off route&apos; indicates special runs (e.g. basketball, football).</p>
+                <p className="px-4 py-3 text-xs text-gray-500 border-t border-gray-50">Capacity comes from live passenger counts. &apos;Off route&apos; means the bus is more than 60 m from its route line.</p>
               </div>
             )}
 

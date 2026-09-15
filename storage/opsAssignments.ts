@@ -4,7 +4,7 @@
  */
 
 import { MOCK_FLEET_STATUS_ROWS } from '../data/mockOps';
-import { ROUTE_CONFIGS } from '../data/routeConfig';
+import { ROUTE_NAMES } from '../data/routes';
 
 const KEY_ASSIGNMENTS = 'p2p-ops-driver-assignments';
 
@@ -16,7 +16,7 @@ export interface DriverAssignment {
 }
 
 const DEFAULT_ASSIGNMENT: DriverAssignment = {
-  routeName: ROUTE_CONFIGS[0]?.routeName ?? 'P2P Express',
+  routeName: ROUTE_NAMES.P2P_EXPRESS,
   busId: MOCK_FLEET_STATUS_ROWS[0]?.busId ?? 'bus-101',
   shiftStartWindow: '06:00 – 14:00',
   managerContact: 'Fleet Manager · (919) 555-0100',
