@@ -13,6 +13,7 @@ const NETWORK_RETRY_MS = 30000;
 
 export interface TransitContextValue {
   network: TransitNetwork | null;
+  networkStatus: 'loading' | 'ready' | 'unavailable';
   snapshot: LiveSnapshot | null;
   status: ClientLiveStatus;
   /** Empty unless status is 'live' or 'degraded'. */
@@ -27,30 +28,50 @@ const TransitContext = createContext<TransitContextValue | null>(null);
 
 export function TransitProvider({ children }: { children: React.ReactNode }) {
   const [network, setNetwork] = useState<TransitNetwork | null>(null);
+  const [networkStatus, setNetworkStatus] = useState<TransitContextValue['networkStatus']>('loading');
   const [snapshot, setSnapshot] = useState<LiveSnapshot | null>(null);
   const [receivedAt, setReceivedAt] = useState<number | null>(null);
   const [attempted, setAttempted] = useState(false);
   const [clock, setClock] = useState(() => Date.now());
   const [refreshing, setRefreshing] = useState(false);
   const inFlightRef = useRef(false);
+  const networkRequest = useRef<Promise<void> | null>(null);
+  const networkRetryTimer = useRef<ReturnType<typeof setTimeout> | undefined>();
+  const refreshRequest = useRef<Promise<void> | null>(null);
+  const mounted = useRef(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const load = async () => {
+  const loadNetwork = useCallback(function load(): Promise<void> {
+    if (networkRequest.current) return networkRequest.current;
+    if (networkRetryTimer.current) clearTimeout(networkRetryTimer.current);
+    setNetworkStatus('loading');
+    networkRequest.current = (async () => {
       try {
         const next = await fetchNetwork();
-        if (!cancelled) setNetwork(next);
+        if (mounted.current) {
+          setNetwork(next);
+          setNetworkStatus('ready');
+        }
       } catch {
-        if (!cancelled) timer = setTimeout(load, NETWORK_RETRY_MS);
+        // A failed request never clears a previously loaded network.
+        if (mounted.current) {
+          setNetworkStatus('unavailable');
+          networkRetryTimer.current = setTimeout(() => void load(), NETWORK_RETRY_MS);
+        }
+      } finally {
+        networkRequest.current = null;
       }
-    };
-    load();
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
+    })();
+    return networkRequest.current;
   }, []);
+
+  useEffect(() => {
+    mounted.current = true;
+    void loadNetwork();
+    return () => {
+      mounted.current = false;
+      if (networkRetryTimer.current) clearTimeout(networkRetryTimer.current);
+    };
+  }, [loadNetwork]);
 
   /** Fetch one snapshot. Resolves true on success (or when a fetch is already running). */
   const pollOnce = useCallback(async (): Promise<boolean> => {
@@ -94,19 +115,23 @@ export function TransitProvider({ children }: { children: React.ReactNode }) {
     };
   }, [pollOnce]);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback((): Promise<void> => {
+    if (refreshRequest.current) return refreshRequest.current;
     setRefreshing(true);
-    try {
-      await pollOnce();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [pollOnce]);
+    refreshRequest.current = Promise.all([pollOnce(), network ? Promise.resolve() : loadNetwork()])
+      .then(() => undefined)
+      .finally(() => {
+        refreshRequest.current = null;
+        if (mounted.current) setRefreshing(false);
+      });
+    return refreshRequest.current;
+  }, [pollOnce, network, loadNetwork]);
 
   const status = deriveClientStatus(snapshot, receivedAt, clock, attempted);
   const value = useMemo<TransitContextValue>(
     () => ({
       network,
+      networkStatus,
       snapshot,
       status,
       vehicles: visibleVehicles(snapshot, status),
@@ -114,7 +139,7 @@ export function TransitProvider({ children }: { children: React.ReactNode }) {
       refreshing,
       refresh,
     }),
-    [network, snapshot, status, receivedAt, refreshing, refresh]
+    [network, networkStatus, snapshot, status, receivedAt, refreshing, refresh]
   );
 
   return <TransitContext.Provider value={value}>{children}</TransitContext.Provider>;

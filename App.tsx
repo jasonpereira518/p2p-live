@@ -1,17 +1,16 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { ViewState, Stop, Coordinate, Journey } from './types';
-import { findNearestStop, getDistanceMiles, UNC_CAMPUS_CENTER, SERVICE_RADIUS_MILES } from './utils/geo';
-import { activePatternKey, getActiveStops } from './utils/transitSelectors';
+import { getDistanceMiles, UNC_CAMPUS_CENTER, SERVICE_RADIUS_MILES } from './utils/geo';
 import { BottomNav } from './components/BottomNav';
-import { ClosestStopCard } from './components/ClosestStopCard';
-import { BusList } from './components/BusList';
+import { HomeView } from './components/HomeView';
 import { BusDetailSheet } from './components/BusDetailSheet';
 import { MapView } from './components/MapView';
 import { PlanTripView } from './components/PlanTripView';
 import { AppHeader } from './components/AppHeader';
-import { RefreshCw, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { useTransit } from './context/TransitProvider';
-import { LiveStatusBanner } from './components/LiveStatusBanner';
+import type { PlannedTrip } from './components/PlanTripView';
+import './components/passenger.css';
 import { ServiceMessageBanner } from './components/ServiceMessageBanner';
 
 // Default to UNC Student Union if geo denied
@@ -23,19 +22,18 @@ function App() {
   const [selectedBusId, setSelectedBusId] = useState<string | null>(null);
   const [selectedStop, setSelectedStop] = useState<Stop | null>(null);
   const [activeJourney, setActiveJourney] = useState<Journey | null>(null);
+  const [plannedTrip, setPlannedTrip] = useState<PlannedTrip | null>(null);
   const [loadingLoc, setLoadingLoc] = useState(true);
   const [geoResolved, setGeoResolved] = useState(false); // true only when getCurrentPosition succeeds
   const [outsideAreaMiles, setOutsideAreaMiles] = useState<number | null>(null);
   const [warningDismissed, setWarningDismissed] = useState(false);
   const [centerOnCampusAt, setCenterOnCampusAt] = useState<number | null>(null);
   const computedOutsideAreaRef = useRef(false);
-  const { network, snapshot, vehicles, status: liveStatus, refresh, refreshing, snapshotReceivedAt } = useTransit();
+  const noticesRef = useRef<HTMLDivElement>(null);
+  const [noticeHeight, setNoticeHeight] = useState(0);
+  const { network, vehicles } = useTransit();
   const selectedBus = useMemo(() => vehicles.find((v) => v.id === selectedBusId) ?? null, [vehicles, selectedBusId]);
   const networkStops = useMemo(() => network?.stops ?? [], [network]);
-  const patternKey = activePatternKey(snapshot);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const activeStops = useMemo(() => getActiveStops(network, snapshot), [network, patternKey]);
-
   // Geolocation Setup
   useEffect(() => {
     if ('geolocation' in navigator) {
@@ -81,11 +79,19 @@ function App() {
     }
   }, [loadingLoc, geoResolved, userLocation]);
 
-  // Derived State
-  const closestStop = useMemo(() => findNearestStop(userLocation, activeStops), [userLocation, activeStops]);
+  useEffect(() => {
+    const node = noticesRef.current;
+    if (!node) return;
+    const measure = () => setNoticeHeight(node.getBoundingClientRect().height);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [view]);
 
-  const handlePlanRoute = (journey: Journey) => {
-    setActiveJourney(journey);
+  const handlePlannedTripChange = (trip: PlannedTrip | null) => {
+    setPlannedTrip(trip);
+    setActiveJourney(trip ? trip.options[trip.mode] : null);
   };
 
   const handleViewOnMap = () => {
@@ -104,13 +110,13 @@ function App() {
   }, []);
 
   return (
-    <div className="min-h-[100dvh] h-full w-full flex flex-col bg-gray-50 relative">
-      <AppHeader loadingLoc={loadingLoc} />
+    <div className={`passenger-app ${view !== 'map' ? 'is-light' : ''} min-h-[100dvh] h-full w-full flex flex-col bg-gray-50 relative`}>
+      <AppHeader loadingLoc={loadingLoc} compact={view === 'map'} home />
 
       {/* Main Content Area: flex-1 min-h-0 so list can scroll */}
-      <main className="flex-1 min-h-0 flex flex-col relative">
+      <main className={`flex-1 min-h-0 flex flex-col relative ${view === 'list' ? 'home-main' : ''}`}>
         {/* Outside service area notice (informational only) */}
-        <div className="pointer-events-none absolute inset-x-0 top-2 z-30 flex flex-col items-center gap-2 px-4">
+        <div ref={noticesRef} className={view === 'list' ? 'home-notices' : 'pointer-events-none absolute inset-x-0 top-2 z-30 flex flex-col items-center gap-2 px-4 max-h-[30dvh] overflow-y-auto'}>
           <ServiceMessageBanner />
           {outsideAreaMiles != null && outsideAreaMiles > SERVICE_RADIUS_MILES && !warningDismissed && (
             <div className="pointer-events-auto w-full max-w-md rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 shadow-sm relative">
@@ -145,86 +151,49 @@ function App() {
           )}
         </div>
 
-        {view === 'list' && (
-          <div
-            className="flex-1 min-h-0 overflow-y-auto no-scrollbar pb-20"
-            style={{ WebkitOverflowScrolling: 'touch' }}
-          >
-            <LiveStatusBanner status={liveStatus} className="px-4 pt-4" />
-            {/* Closest Stop section: same horizontal padding as Active Buses */}
-            {closestStop && (
-              <div className="px-4 pt-4 pb-2">
-                <h2 className="text-gray-900 font-bold text-lg mb-1">Closest Stop to You</h2>
-                <ClosestStopCard
-                  stop={closestStop}
-                  userLocation={userLocation}
-                />
-              </div>
-            )}
-            {/* Active Buses section: aligned padding */}
-            <div className="px-4 pt-6 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <h2 className="text-gray-900 font-bold text-lg">Active Buses</h2>
-                {snapshotReceivedAt != null && (
-                  <span className="text-xs text-gray-400">
-                    Updated {snapshotReceivedAt > Date.now() - 60000 ? 'just now' : new Date(snapshotReceivedAt).toLocaleTimeString()}
-                  </span>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => { void refresh(); }}
-                disabled={refreshing}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-p2p-light-blue/50 text-p2p-blue text-sm font-semibold hover:bg-p2p-light-blue/70 disabled:opacity-60 disabled:pointer-events-none"
-                aria-label="Refresh ETAs"
-              >
-                <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
-                Refresh
-              </button>
-            </div>
-            <BusList
-              vehicles={vehicles}
-              stops={networkStops}
-              onSelectBus={(bus) => setSelectedBusId(bus.id)}
-            />
-          </div>
-        )}
+        {view === 'list' && <HomeView location={userLocation} locationResolved={geoResolved} loadingLocation={loadingLoc}
+          onSelectBus={bus => { setSelectedStop(null); setActiveJourney(null); setSelectedBusId(bus.id); }}
+          onSelectStop={stop => { setSelectedBusId(null); setActiveJourney(null); setSelectedStop(stop); setView('map'); }}
+          onBrowseMap={() => { setSelectedBusId(null); setSelectedStop(null); setActiveJourney(null); setCenterOnCampusAt(Date.now()); setView('map'); }} />}
 
         {view === 'plan' && (
           <div
-            className="flex-1 min-h-0 overflow-y-auto no-scrollbar pb-20"
+            className="passenger-plan-scroll flex-1 min-h-0 overflow-y-auto no-scrollbar pb-20"
             style={{ WebkitOverflowScrolling: 'touch' }}
           >
-            <PlanTripView 
+            <PlanTripView
               userLocation={userLocation}
-              onPlanRoute={handlePlanRoute}
+              plannedTrip={plannedTrip}
+              onPlannedTripChange={handlePlannedTripChange}
               onViewOnMap={handleViewOnMap}
-              existingJourney={activeJourney}
             />
           </div>
         )}
         
         {view === 'map' && (
-          <div className="h-full w-full relative">
+          <div className="h-full w-full relative pb-[calc(4rem+env(safe-area-inset-bottom))]">
             <MapView
-              stops={activeStops}
               vehicles={vehicles}
               userLocation={userLocation}
-              userLocationResolved={!loadingLoc}
+              userLocationResolved={geoResolved}
               centerOnCampusAt={centerOnCampusAt}
+              topInset={noticeHeight > 0 ? noticeHeight + 8 : 0}
+              busDetailsOpen={selectedBus != null}
               onSelectBus={(bus) => {
                 setSelectedBusId(bus.id);
                 setSelectedStop(null);
+                setActiveJourney(null);
               }}
               onSelectStop={(stop) => {
-                setSelectedStop((prev) => (prev?.id === stop.id ? null : stop));
+                setSelectedBusId(null);
+                setActiveJourney(null);
+                setSelectedStop(stop);
               }}
               onDismissStop={() => setSelectedStop(null)}
               selectedStop={selectedStop}
               activeJourney={activeJourney}
               onClearJourney={() => setActiveJourney(null)}
               onStartWalkToStop={(journey) => setActiveJourney(journey)}
-              onViewList={() => { setView('list'); setSelectedStop(null); }}
             />
           </div>
         )}
@@ -235,7 +204,7 @@ function App() {
         <BusDetailSheet
           vehicle={selectedBus}
           stops={networkStops}
-          userLocation={userLocation}
+          userLocation={geoResolved && outsideAreaMiles == null ? userLocation : null}
           onClose={() => setSelectedBusId(null)}
         />
       )}

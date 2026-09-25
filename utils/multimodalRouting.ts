@@ -1,6 +1,6 @@
 /**
  * Multimodal routing: Walk → Bus → Walk using Mapbox walking directions and GMV pattern geometry.
- * Compares walk-only vs bus-assisted and returns the best journey with geometries and steps.
+ * Returns both a walk-only journey and the best bus-assisted journey, so riders can choose.
  */
 
 import type {
@@ -20,13 +20,12 @@ import { sliceRouteByDistance } from './routeInterpolation';
 import { getUpcomingRouteArrivals, isRouteOperatingNow } from './serviceSchedule';
 import { ROUTE_IDS, ROUTE_NAMES } from '../data/routes';
 import { getActivePattern } from './transitSelectors';
-import { estimateBusLeg, fallbackRideSec, rideDistanceMeters } from './tripPlanning';
+import { estimateBusLeg, fallbackRideSec, recommendedMode, rideDistanceMeters, type TripMode, type TripOptions } from './tripPlanning';
 
 const BASE = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_OPS_API_URL) || '';
 const K_NEAREST = 6;
 const MAX_WALK_METERS = 1200;
 const MAX_WALK_DURATION_SEC = 15 * 60;
-const WALK_ONLY_MARGIN_SEC = 90;
 
 export interface WalkDirectionsResult {
   durationSec: number;
@@ -104,6 +103,7 @@ function walkSegment(
     toCoords,
     distanceMeters: walk.distanceMeters,
     durationMin: Math.ceil(walk.durationSec / 60),
+    durationSec: walk.durationSec,
     instruction: `Walk to ${toName}`,
     geometry: walk.geometry as LineStringGeometry,
     steps: walk.steps as WalkingStep[],
@@ -117,22 +117,38 @@ interface StopCandidate {
 
 export interface MultimodalInput {
   origin: Coordinate;
+  /** Shown as the first step's start; defaults to the rider's current location. */
+  originName?: string;
   destination: Destination;
   network: TransitNetwork | null;
   snapshot: LiveSnapshot | null;
 }
 
-export async function computeMultimodalRoute(input: MultimodalInput): Promise<Journey> {
-  const { origin, destination, network, snapshot } = input;
+function makeJourney(mode: TripMode, destination: Destination, segments: JourneySegment[], totalSec: number, now: Date): Journey {
+  return {
+    id: `journey-${mode}-${now.getTime()}`,
+    destination,
+    totalDurationMin: Math.ceil(totalSec / 60),
+    segments,
+    startTime: now,
+    arrivalTime: new Date(now.getTime() + totalSec * 1000),
+  };
+}
+
+export async function computeTripOptions(input: MultimodalInput): Promise<TripOptions> {
+  const { origin, originName = 'Current Location', destination, network, snapshot } = input;
   const destCoord: Coordinate = { lat: destination.lat, lon: destination.lon };
   const now = new Date();
 
   const walkOnly = await getWalkDirections(origin, destCoord);
-  const walkOnlyDurationSec = walkOnly ? walkOnly.durationSec : Infinity;
+  const walk = walkOnly?.geometry
+    ? makeJourney('walk', destination, [walkSegment(originName, destination.name, origin, destCoord, walkOnly)], walkOnly.durationSec, now)
+    : null;
 
-  let bestTotalSec = walkOnlyDurationSec;
-  let bestSegments: JourneySegment[] =
-    walkOnly && walkOnly.geometry ? [walkSegment('Current Location', destination.name, origin, destCoord, walkOnly)] : [];
+  // The best bus trip competes only with other bus trips, so it is offered even when walking wins.
+  let best: { totalSec: number; segments: JourneySegment[] } | null = null;
+  let anyRouteRunning = false;
+  let anyStopsInReach = false;
 
   const stopsById = new Map((network?.stops ?? []).map((s) => [s.id, s]));
 
@@ -142,6 +158,7 @@ export async function computeMultimodalRoute(input: MultimodalInput): Promise<Jo
   for (const routeId of ROUTE_IDS) {
     const hasLiveBuses = liveVehicles.some((v) => v.routeId === routeId);
     if (!hasLiveBuses && !isRouteOperatingNow(routeId, now)) continue;
+    anyRouteRunning = true;
     const pattern = getActivePattern(network, snapshot, routeId);
     if (!pattern || pattern.geometry.coordinates.length < 2) continue;
     const refs = patternStopRefs(pattern, stopsById);
@@ -173,6 +190,7 @@ export async function computeMultimodalRoute(input: MultimodalInput): Promise<Jo
       if (!walk || walk.durationSec > MAX_WALK_DURATION_SEC) continue;
       alightCandidates.push({ ref: refByStopId.get(stop.id)!, walk });
     }
+    if (boardCandidates.length && alightCandidates.length) anyStopsInReach = true;
 
     for (const board of boardCandidates) {
       for (const alight of alightCandidates) {
@@ -189,55 +207,49 @@ export async function computeMultimodalRoute(input: MultimodalInput): Promise<Jo
           fallbackRideSec: fallbackRideSec(distance, forwardStops.length - 2),
         });
         if (!leg) continue;
-        const busDurationSec = leg.rideSec;
-        const totalSec = board.walk.durationSec + leg.waitSec + busDurationSec + alight.walk.durationSec;
-        if (totalSec >= bestTotalSec) continue;
+        const totalSec = board.walk.durationSec + leg.waitSec + leg.rideSec + alight.walk.durationSec;
+        if (best && totalSec >= best.totalSec) continue;
 
         const busGeometry = sliceRouteByDistance(pattern.geometry.coordinates, board.ref.distAlong, alight.ref.distAlong);
         if (busGeometry.length < 2) continue;
 
         const boardCoords: Coordinate = { lat: board.ref.stop.lat, lon: board.ref.stop.lon };
         const alightCoords: Coordinate = { lat: alight.ref.stop.lat, lon: alight.ref.stop.lon };
-        bestTotalSec = totalSec;
-        bestSegments = [
-          walkSegment('Current Location', board.ref.stop.name, origin, boardCoords, board.walk),
-          {
-            type: 'bus',
-            fromName: board.ref.stop.name,
-            toName: alight.ref.stop.name,
-            fromCoords: boardCoords,
-            toCoords: alightCoords,
-            distanceMeters: 0,
-            durationMin: Math.ceil(busDurationSec / 60),
-            instruction: `Ride ${routeName}`,
-            routeId,
-            routeName,
-            stopsCount: forwardStops.length,
-            waitTimeMin: Math.ceil(leg.waitSec / 60),
-            waitSource: leg.source,
-            busSegmentGeometry: { type: 'LineString', coordinates: busGeometry },
-            busOrderedStopIds: forwardStops.map((s) => s.stop.id),
-          },
-          walkSegment(alight.ref.stop.name, destination.name, alightCoords, destCoord, alight.walk),
-        ];
+        best = {
+          totalSec,
+          segments: [
+            walkSegment(originName, board.ref.stop.name, origin, boardCoords, board.walk),
+            {
+              type: 'bus',
+              fromName: board.ref.stop.name,
+              toName: alight.ref.stop.name,
+              fromCoords: boardCoords,
+              toCoords: alightCoords,
+              distanceMeters: 0,
+              durationMin: Math.ceil(leg.rideSec / 60),
+              durationSec: leg.rideSec,
+              instruction: `Ride ${routeName}`,
+              routeId,
+              routeName,
+              stopsCount: forwardStops.length,
+              waitTimeMin: Math.ceil(leg.waitSec / 60),
+              waitSec: leg.waitSec,
+              waitSource: leg.source,
+              busSegmentGeometry: { type: 'LineString', coordinates: busGeometry },
+              busOrderedStopIds: forwardStops.map((s) => s.stop.id),
+            },
+            walkSegment(alight.ref.stop.name, destination.name, alightCoords, destCoord, alight.walk),
+          ],
+        };
       }
     }
   }
 
-  if (walkOnly && walkOnly.geometry && walkOnlyDurationSec <= bestTotalSec + WALK_ONLY_MARGIN_SEC) {
-    bestTotalSec = walkOnlyDurationSec;
-    bestSegments = [walkSegment('Current Location', destination.name, origin, destCoord, walkOnly)];
-  }
-
-  const totalDurationMin = Math.ceil(bestTotalSec / 60);
-  const arrivalTime = new Date(now.getTime() + bestTotalSec * 1000);
-
+  const bus = best ? makeJourney('bus', destination, best.segments, best.totalSec, now) : null;
   return {
-    id: `journey-${Date.now()}`,
-    destination,
-    totalDurationMin,
-    segments: bestSegments,
-    startTime: now,
-    arrivalTime,
+    walk,
+    bus,
+    busUnavailable: bus ? null : !anyRouteRunning ? 'not-running' : !anyStopsInReach ? 'no-stops' : 'no-trip',
+    recommended: recommendedMode(walkOnly && walk ? walkOnly.durationSec : null, best?.totalSec ?? null),
   };
 }

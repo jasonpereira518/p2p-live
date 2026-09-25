@@ -1,17 +1,17 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { Search, MapPin, ArrowRight, Bus, User, Navigation, History, X, Pencil, ArrowUpDown, Heart } from 'lucide-react';
-import { Destination, Journey, Coordinate } from '../types';
+import { Search, MapPin, ArrowRight, Navigation, History, X, Pencil, ArrowUpDown, Heart } from 'lucide-react';
+import { Destination, Coordinate } from '../types';
 import { MOCK_DESTINATIONS } from '../data/mockTransit';
 import { POPULAR_LOCATIONS } from '../data/popularLocations';
 import { TOP_LOCATIONS, topLocationToDestination } from '../data/topLocations';
 import { getRecentSearches, addRecentSearch, clearRecentSearches, type RecentSearchItem } from '../storage/recentSearches';
 import { getSavedRoutes, recordRouteUsage, toggleSavedRouteFavorite, type SavedRouteItem } from '../storage/savedRoutes';
-import { computeMultimodalRoute } from '../utils/multimodalRouting';
-import { formatDuration, formatDistanceImperial, formatETA } from '../utils/format';
-import { ROUTE_IDS } from '../data/routes';
+import { computeTripOptions } from '../utils/multimodalRouting';
+import type { TripMode, TripOptions } from '../utils/tripPlanning';
 import { useTransit } from '../context/TransitProvider';
 import { API } from '../utils/api';
-import { isRouteOperatingNow } from '../utils/serviceSchedule';
+import { TripResults } from './TripResults';
+import './trip.css';
 
 const TOP_DESTINATIONS: Destination[] = TOP_LOCATIONS.map(topLocationToDestination);
 
@@ -22,13 +22,31 @@ const ALL_DESTINATIONS = (() => {
 })();
 
 /** Start or end of a trip: current location or a chosen place. */
-type TripEnd = 'current' | Destination;
+export type TripEnd = 'current' | Destination;
+
+/** A planned trip: both options, the one the rider picked, and what was asked (for refresh). */
+export interface PlannedTrip {
+  options: TripOptions;
+  mode: TripMode;
+  request: { start: TripEnd; destination: Destination };
+}
 
 function tripEndToDestination(tripEnd: TripEnd, userLocation: Coordinate): Destination {
   if (tripEnd === 'current') {
     return { id: 'current', name: 'Current Location', lat: userLocation.lat, lon: userLocation.lon };
   }
   return tripEnd;
+}
+
+function recentToDestination(item: RecentSearchItem): Destination {
+  return item.lat != null && item.lon != null
+    ? { id: `recent-${item.label}`, name: item.label, lat: item.lat, lon: item.lon }
+    : ALL_DESTINATIONS.find((d) => d.name.toLowerCase() === item.label.toLowerCase()) ?? {
+        id: `recent-${item.label}`,
+        name: item.label,
+        lat: 35.91,
+        lon: -79.05,
+      };
 }
 
 interface GeocodeResult {
@@ -40,16 +58,16 @@ interface GeocodeResult {
 
 interface PlanTripViewProps {
   userLocation: Coordinate;
-  onPlanRoute: (journey: Journey) => void;
+  plannedTrip: PlannedTrip | null;
+  onPlannedTripChange: (trip: PlannedTrip | null) => void;
   onViewOnMap: () => void;
-  existingJourney: Journey | null;
 }
 
-export const PlanTripView: React.FC<PlanTripViewProps> = ({ 
-  userLocation, 
-  onPlanRoute, 
+export const PlanTripView: React.FC<PlanTripViewProps> = ({
+  userLocation,
+  plannedTrip,
+  onPlannedTripChange,
   onViewOnMap,
-  existingJourney 
 }) => {
   const [query, setQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
@@ -60,29 +78,21 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
   const [fromSearchFocused, setFromSearchFocused] = useState(false);
   const [recentSearches, setRecentSearches] = useState<RecentSearchItem[]>(() => getRecentSearches());
   const [savedRoutes, setSavedRoutes] = useState<SavedRouteItem[]>(() => getSavedRoutes());
-  const [journey, setJourney] = useState<Journey | null>(existingJourney);
   const [routingLoading, setRoutingLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [planError, setPlanError] = useState<string | null>(null);
   const [addressResults, setAddressResults] = useState<GeocodeResult[]>([]);
   const [geocodeLoading, setGeocodeLoading] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dropdownScrollRef = useRef<HTMLDivElement>(null);
 
-  const origin: Coordinate = fromLocation === 'current'
-    ? userLocation
-    : { lat: fromLocation.lat, lon: fromLocation.lon };
   const activeQuery = expandedSearch && fromSearchFocused ? fromQuery : query;
-  const anyRouteInService = ROUTE_IDS.some((routeId) => isRouteOperatingNow(routeId));
 
   const { network, snapshot } = useTransit();
   // Latest transit data for routing without re-creating every handler on each poll.
   const transitRef = useRef({ network, snapshot });
   transitRef.current = { network, snapshot };
-  const planRoute = useCallback(
-    (input: { origin: Coordinate; destination: Destination }) =>
-      computeMultimodalRoute({ ...input, ...transitRef.current }),
-    []
-  );
 
   const stopNameById = useMemo(
     () => new Map((network?.stops ?? []).map((s) => [s.id, s.name] as const)),
@@ -148,102 +158,67 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
     setSavedRoutes(getSavedRoutes());
   }, []);
 
-  const handleSelectDestination = useCallback(
-    async (dest: Destination) => {
-      setQuery(dest.name);
-      setToDestination(dest);
-      setSearchFocused(false);
-      addRecentSearch({ label: dest.name, address: dest.address, lat: dest.lat, lon: dest.lon });
-      refreshRecent();
-      setRoutingLoading(true);
+  /** Plan walk and bus options from `start` to `dest`. A refresh keeps the rider's choice when it still exists. */
+  const planTrip = useCallback(
+    async (start: TripEnd, dest: Destination, refresh?: { mode: TripMode }) => {
+      const routeOrigin: Coordinate = start === 'current' ? userLocation : { lat: start.lat, lon: start.lon };
+      const originName = start === 'current' ? 'Current Location' : start.name;
+      setPlanError(null);
+      if (refresh) setRefreshing(true); else setRoutingLoading(true);
       try {
-        const newJourney = await planRoute({
-          origin,
-          destination: dest,
-        });
-        setJourney(newJourney);
-        onPlanRoute(newJourney);
+        const options = await computeTripOptions({ origin: routeOrigin, originName, destination: dest, ...transitRef.current });
+        if (!options.walk && !options.bus) throw new Error('No walking or bus route');
+        const mode = refresh && options[refresh.mode] ? refresh.mode : options.recommended;
+        onPlannedTripChange({ options, mode, request: { start, destination: dest } });
+        if (refresh) return;
         recordRouteUsage({
-          fromName: fromLocation === 'current' ? 'Current Location' : fromLocation.name,
-          fromLat: origin.lat,
-          fromLon: origin.lon,
-          fromIsCurrent: fromLocation === 'current',
+          fromName: originName,
+          fromLat: routeOrigin.lat,
+          fromLon: routeOrigin.lon,
+          fromIsCurrent: start === 'current',
           toName: dest.name,
           toAddress: dest.address,
           toLat: dest.lat,
           toLon: dest.lon,
-          routeLabel: newJourney.segments.find((s) => s.type === 'bus')?.routeName,
+          routeLabel: options.bus?.segments.find((s) => s.type === 'bus')?.routeName,
         });
         refreshSavedRoutes();
       } catch (e) {
         console.error(e);
-        alert('Could not calculate route');
+        setPlanError('We couldn’t plan this trip. Check your connection and try again.');
       } finally {
         setRoutingLoading(false);
+        setRefreshing(false);
       }
     },
-    [origin, onPlanRoute, refreshRecent, fromLocation, refreshSavedRoutes]
+    [userLocation, onPlannedTripChange, refreshSavedRoutes]
   );
+
+  const chooseDestination = useCallback(
+    (dest: Destination, address = dest.address) => {
+      setQuery(dest.name);
+      setToDestination(dest);
+      setSearchFocused(false);
+      addRecentSearch({ label: dest.name, address, lat: dest.lat, lon: dest.lon });
+      refreshRecent();
+      void planTrip(fromLocation, dest);
+    },
+    [fromLocation, planTrip, refreshRecent]
+  );
+
+  const handleSelectDestination = useCallback((dest: Destination) => chooseDestination(dest), [chooseDestination]);
 
   const handleSelectAddressResult = useCallback(
     (item: GeocodeResult) => {
       const [lon, lat] = item.coordinates;
-      const dest: Destination = {
-        id: `addr-${item.id}`,
-        name: item.place_name,
-        lat,
-        lon,
-        address: item.place_name,
-      };
-      handleSelectDestination(dest);
+      handleSelectDestination({ id: `addr-${item.id}`, name: item.place_name, lat, lon, address: item.place_name });
     },
     [handleSelectDestination]
   );
 
   const handleSelectRecent = useCallback(
-    async (item: RecentSearchItem) => {
-      const dest: Destination =
-        item.lat != null && item.lon != null
-          ? { id: `recent-${item.label}`, name: item.label, lat: item.lat, lon: item.lon }
-          : ALL_DESTINATIONS.find((d) => d.name.toLowerCase() === item.label.toLowerCase()) ?? {
-              id: `recent-${item.label}`,
-              name: item.label,
-              lat: 35.91,
-              lon: -79.05,
-            };
-      setQuery(dest.name);
-      setToDestination(dest);
-      setSearchFocused(false);
-      addRecentSearch({ label: dest.name, address: item.address, lat: dest.lat, lon: dest.lon });
-      refreshRecent();
-      setRoutingLoading(true);
-      try {
-        const newJourney = await planRoute({
-          origin,
-          destination: dest,
-        });
-        setJourney(newJourney);
-        onPlanRoute(newJourney);
-        recordRouteUsage({
-          fromName: fromLocation === 'current' ? 'Current Location' : fromLocation.name,
-          fromLat: origin.lat,
-          fromLon: origin.lon,
-          fromIsCurrent: fromLocation === 'current',
-          toName: dest.name,
-          toAddress: dest.address,
-          toLat: dest.lat,
-          toLon: dest.lon,
-          routeLabel: newJourney.segments.find((s) => s.type === 'bus')?.routeName,
-        });
-        refreshSavedRoutes();
-      } catch (e) {
-        console.error(e);
-        alert('Could not calculate route');
-      } finally {
-        setRoutingLoading(false);
-      }
-    },
-    [origin, onPlanRoute, refreshRecent, fromLocation, refreshSavedRoutes]
+    (item: RecentSearchItem) => chooseDestination(recentToDestination(item), item.address),
+    [chooseDestination]
   );
 
   const handleClearRecent = useCallback(() => {
@@ -260,15 +235,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
   }, [refreshRecent]);
 
   const handleSelectFromRecent = useCallback((item: RecentSearchItem) => {
-    const dest: Destination =
-      item.lat != null && item.lon != null
-        ? { id: `recent-${item.label}`, name: item.label, lat: item.lat, lon: item.lon }
-        : ALL_DESTINATIONS.find((d) => d.name.toLowerCase() === item.label.toLowerCase()) ?? {
-            id: `recent-${item.label}`,
-            name: item.label,
-            lat: 35.91,
-            lon: -79.05,
-          };
+    const dest = recentToDestination(item);
     setFromLocation(dest);
     setFromQuery(dest.name);
     setFromSearchFocused(false);
@@ -279,14 +246,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
   const handleSelectFromAddressResult = useCallback(
     (item: GeocodeResult) => {
       const [lon, lat] = item.coordinates;
-      const dest: Destination = {
-        id: `addr-${item.id}`,
-        name: item.place_name,
-        lat,
-        lon,
-        address: item.place_name,
-      };
-      handleSelectFrom(dest);
+      handleSelectFrom({ id: `addr-${item.id}`, name: item.place_name, lat, lon, address: item.place_name });
     },
     [handleSelectFrom]
   );
@@ -317,35 +277,12 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
     setQuery('');
   }, []);
 
-  const handlePlanTripFromExpanded = useCallback(async () => {
-    if (toDestination == null) return;
-    setRoutingLoading(true);
-    try {
-      const newJourney = await planRoute({ origin, destination: toDestination });
-      setJourney(newJourney);
-      onPlanRoute(newJourney);
-      recordRouteUsage({
-        fromName: fromLocation === 'current' ? 'Current Location' : fromLocation.name,
-        fromLat: origin.lat,
-        fromLon: origin.lon,
-        fromIsCurrent: fromLocation === 'current',
-        toName: toDestination.name,
-        toAddress: toDestination.address,
-        toLat: toDestination.lat,
-        toLon: toDestination.lon,
-        routeLabel: newJourney.segments.find((s) => s.type === 'bus')?.routeName,
-      });
-      refreshSavedRoutes();
-    } catch (e) {
-      console.error(e);
-      alert('Could not calculate route');
-    } finally {
-      setRoutingLoading(false);
-    }
-  }, [origin, toDestination, onPlanRoute, fromLocation, refreshSavedRoutes]);
+  const handlePlanTripFromExpanded = useCallback(() => {
+    if (toDestination != null) void planTrip(fromLocation, toDestination);
+  }, [fromLocation, toDestination, planTrip]);
 
   const handleRunSavedRoute = useCallback(
-    async (item: SavedRouteItem) => {
+    (item: SavedRouteItem) => {
       const destination: Destination = {
         id: `saved-route-dest-${item.id}`,
         name: item.toName,
@@ -355,57 +292,18 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
       };
       const start: TripEnd = item.fromIsCurrent
         ? 'current'
-        : {
-            id: `saved-route-from-${item.id}`,
-            name: item.fromName,
-            lat: item.fromLat,
-            lon: item.fromLon,
-          };
-      const routeOrigin: Coordinate = item.fromIsCurrent
-        ? userLocation
-        : { lat: item.fromLat, lon: item.fromLon };
-
+        : { id: `saved-route-from-${item.id}`, name: item.fromName, lat: item.fromLat, lon: item.fromLon };
       setFromLocation(start);
       setFromQuery(item.fromIsCurrent ? '' : item.fromName);
       setToDestination(destination);
       setQuery(destination.name);
       setSearchFocused(false);
       setFromSearchFocused(false);
-      addRecentSearch({
-        label: destination.name,
-        address: destination.address,
-        lat: destination.lat,
-        lon: destination.lon,
-      });
+      addRecentSearch({ label: destination.name, address: destination.address, lat: destination.lat, lon: destination.lon });
       refreshRecent();
-      setRoutingLoading(true);
-      try {
-        const newJourney = await planRoute({
-          origin: routeOrigin,
-          destination,
-        });
-        setJourney(newJourney);
-        onPlanRoute(newJourney);
-        recordRouteUsage({
-          fromName: item.fromIsCurrent ? 'Current Location' : item.fromName,
-          fromLat: routeOrigin.lat,
-          fromLon: routeOrigin.lon,
-          fromIsCurrent: item.fromIsCurrent,
-          toName: destination.name,
-          toAddress: destination.address,
-          toLat: destination.lat,
-          toLon: destination.lon,
-          routeLabel: newJourney.segments.find((s) => s.type === 'bus')?.routeName,
-        });
-        refreshSavedRoutes();
-      } catch (e) {
-        console.error(e);
-        alert('Could not calculate route');
-      } finally {
-        setRoutingLoading(false);
-      }
+      void planTrip(start, destination);
     },
-    [onPlanRoute, refreshRecent, refreshSavedRoutes, userLocation]
+    [planTrip, refreshRecent]
   );
 
   const handleToggleFavoriteRoute = useCallback(
@@ -535,305 +433,31 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
 
   const handleNewSearch = () => {
     setQuery('');
-    setJourney(null);
-    onPlanRoute(null as any); // Clear journey in parent
+    setToDestination(null);
+    onPlannedTripChange(null);
   };
 
   if (routingLoading) {
     return (
-      <div className="flex flex-col h-full bg-gray-50 items-center justify-center p-8">
-        <div className="w-12 h-12 border-4 border-p2p-blue border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-gray-600 font-medium">Finding best route…</p>
-        <p className="text-sm text-gray-400 mt-1">Walk and bus options with Mapbox</p>
+      <div className="trip-view trip-loading" role="status">
+        <div className="trip-spinner" aria-hidden="true" />
+        <p className="trip-loading-title">Finding walk and bus options…</p>
+        <p className="trip-loading-note">Comparing walking with the next buses</p>
       </div>
     );
   }
 
-  // Render Result View
-  if (journey) {
-    const totalDurationSeconds = journey.totalDurationMin * 60;
-    const now = new Date();
-    const bufferSec = 90;
-    const firstWalk = journey.segments.find((s) => s.type === 'walk') ?? null;
-    const busSeg = journey.segments.find((s) => s.type === 'bus') ?? null;
-    const hasBus = !!busSeg;
-    const hasBusArrivalEstimate = hasBus && busSeg?.waitTimeMin != null && firstWalk != null;
-    const walkToStartStopSec = firstWalk ? firstWalk.durationMin * 60 : 0;
-    const waitAtStopSec = busSeg?.waitTimeMin != null ? busSeg.waitTimeMin * 60 : 0;
-    const nextBusAt =
-      hasBusArrivalEstimate ? new Date(now.getTime() + (walkToStartStopSec + waitAtStopSec) * 1000) : null;
-    const leaveAt =
-      hasBusArrivalEstimate ? new Date(now.getTime() + (waitAtStopSec - bufferSec) * 1000) : null;
-    const shouldLeaveNow = leaveAt != null && leaveAt.getTime() <= now.getTime();
-    const nextBusInMin =
-      nextBusAt != null ? Math.max(0, Math.round((nextBusAt.getTime() - now.getTime()) / 60000)) : null;
+  if (plannedTrip) {
     return (
-      <div className="flex flex-col h-full bg-gray-50">
-        {/* Journey Summary Header */}
-        <div className="bg-white p-5 border-b border-gray-100 shadow-sm shrink-0">
-          {/* Destination summary */}
-          <div className="mb-4">
-            <h2 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">
-              Destination
-            </h2>
-            <div className="text-base font-semibold text-gray-900">
-              {journey.destination.name}
-            </div>
-            {journey.destination.address && (
-              <div className="text-xs text-gray-500 mt-0.5">
-                {journey.destination.address}
-              </div>
-            )}
-          </div>
-          <div className="h-px bg-gray-100 -mx-5 mb-4" />
-          <div className="flex flex-row flex-wrap items-start justify-between gap-4">
-            {/* Left: Total time + summary */}
-            <div className="flex-1 min-w-0">
-              <h2 className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Total Time</h2>
-              <div className="flex items-baseline gap-2 mb-1">
-                <span className="text-3xl font-black text-gray-900">
-                  {formatDuration(totalDurationSeconds)}
-                </span>
-              </div>
-              <div className="text-sm text-gray-600 mb-1">
-                <span className="font-semibold">ETA:</span>{' '}
-                <span>{formatETA(totalDurationSeconds)}</span>
-              </div>
-              {journey.segments.some((s) => s.type === 'bus') ? (
-                <div className="text-xs text-p2p-blue font-semibold mb-2">
-                  Via {journey.segments.find((s) => s.type === 'bus')?.routeName ?? 'bus'}
-                </div>
-              ) : (
-                <div className="text-xs text-gray-500 mb-2">
-                  {anyRouteInService ? 'Walk only (faster than bus)' : 'This route is not currently operating'}
-                </div>
-              )}
-              <div className="text-xs text-gray-500 mb-4">
-              {journey.segments.length === 1 ? (
-                <>Walk: {formatDuration(journey.segments[0].durationMin * 60)}</>
-              ) : (
-                <>
-                  Walk to Stop: {formatDuration((journey.segments[0]?.durationMin ?? 0) * 60)}
-                  {' • '}
-                  Ride {journey.segments[1]?.routeName}: {formatDuration((journey.segments[1]?.durationMin ?? 0) * 60)}
-                  {' • '}
-                  Walk to Destination: {formatDuration((journey.segments[2]?.durationMin ?? 0) * 60)}
-                </>
-              )}
-              </div>
-              <div className="flex flex-wrap gap-2 mb-4">
-               {journey.segments.map((seg, i) => (
-                 <div key={i} className={`flex items-center text-xs font-bold px-2 py-1 rounded-md border ${
-                   seg.type === 'walk' ? 'bg-gray-100 text-gray-600 border-gray-200' : 'bg-p2p-blue/10 text-p2p-blue border-p2p-blue/20'
-                 }`}>
-                   {seg.type === 'walk' ? <User size={12} className="mr-1"/> : <Bus size={12} className="mr-1"/>}
-                   {formatDuration(seg.durationMin * 60)}
-                 </div>
-               ))}
-              </div>
-            </div>
-
-            {/* Right: Timing widget (mobile-first, compact) */}
-            <div className="ml-auto">
-              <div className="inline-flex flex-col max-w-[180px] md:max-w-[220px] rounded-xl border border-amber-200 bg-amber-50 px-2.5 py-2 md:px-3 md:py-2.5 shadow-sm text-[11px] md:text-xs text-gray-900">
-                <div className="text-[9px] md:text-[10px] font-semibold uppercase tracking-wide text-amber-700 mb-1">
-                  Timing{busSeg?.waitSource ? ` · ${busSeg.waitSource === 'live' ? 'Live' : 'Scheduled'}` : ''}
-                </div>
-                {hasBus && hasBusArrivalEstimate && nextBusAt && leaveAt ? (
-                  <>
-                    {/* Mobile compact (<= sm) */}
-                    <div className="block sm:hidden space-y-0.5">
-                      <div className="font-semibold text-gray-900">
-                        {shouldLeaveNow
-                          ? 'Leave now'
-                          : `Leave at ${leaveAt.toLocaleTimeString(undefined, {
-                              hour: 'numeric',
-                              minute: '2-digit',
-                            })}`}
-                      </div>
-                      <div
-                        className={`font-semibold text-[11px] ${
-                          busSeg?.routeName === 'P2P Express'
-                            ? 'text-p2p-blue'
-                            : busSeg?.routeName === 'Baity Hill'
-                            ? 'text-p2p-red'
-                            : 'text-gray-900'
-                        }`}
-                      >
-                        {busSeg?.routeName ?? 'bus'}
-                      </div>
-                      <div className="text-[10px] text-gray-700">
-                        {nextBusInMin != null
-                          ? `Next bus: ${nextBusInMin} min`
-                          : `Next bus: ${nextBusAt.toLocaleTimeString(undefined, {
-                              hour: 'numeric',
-                              minute: '2-digit',
-                            })}`}
-                      </div>
-                    </div>
-
-                    {/* Desktop/tablet full version */}
-                    <div className="hidden sm:block space-y-1">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <span className="font-semibold">Leave at:</span>
-                        <span className="font-semibold text-gray-900 whitespace-nowrap">
-                          {shouldLeaveNow
-                            ? 'Leave now'
-                            : leaveAt.toLocaleTimeString(undefined, {
-                                hour: 'numeric',
-                                minute: '2-digit',
-                              })}
-                        </span>
-                      </div>
-                      <div className="flex flex-col gap-0.5">
-                        <div className="flex items-baseline justify-between gap-2">
-                          <span className="font-semibold">To catch:</span>
-                          <span
-                            className={`font-semibold whitespace-nowrap ${
-                              busSeg?.routeName === 'P2P Express'
-                                ? 'text-p2p-blue'
-                                : busSeg?.routeName === 'Baity Hill'
-                                ? 'text-p2p-red'
-                                : 'text-gray-900'
-                            }`}
-                          >
-                            {busSeg?.routeName ?? 'bus'}
-                          </span>
-                        </div>
-                        <span className="text-[10px] md:text-[11px] text-gray-700">
-                          Next bus at{' '}
-                          <span className="font-semibold text-gray-900">
-                            {nextBusAt.toLocaleTimeString(undefined, {
-                              hour: 'numeric',
-                              minute: '2-digit',
-                            })}
-                          </span>
-                        </span>
-                      </div>
-                    </div>
-                  </>
-                ) : hasBus ? (
-                  <div className="text-[11px] md:text-xs text-gray-800">
-                    No upcoming arrivals — using walking-only estimate.
-                  </div>
-                ) : (
-                  <div className="text-[11px] md:text-xs text-gray-800">
-                    <span className="font-semibold">{anyRouteInService ? 'Walking only' : 'Transit unavailable now'}</span>
-                    <div className="text-[10px] text-gray-600">
-                      {anyRouteInService ? 'No bus timing needed for this trip.' : 'This route is not currently operating.'}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-            <div className="flex gap-3">
-              <button 
-                onClick={onViewOnMap}
-                className="flex-1 bg-p2p-blue text-white py-3 rounded-xl font-bold text-sm shadow-md active:scale-[0.98] transition-transform flex items-center justify-center"
-              >
-                <Navigation size={18} className="mr-2" />
-                Start Navigation
-              </button>
-              <button 
-                onClick={handleNewSearch}
-                className="px-4 py-3 bg-gray-100 text-gray-700 font-bold text-sm rounded-xl hover:bg-gray-200 transition-colors"
-              >
-                New Search
-              </button>
-            </div>
-        </div>
-
-        {/* Steps List */}
-        <div className="p-4 space-y-6 pb-24">
-           {journey.segments.map((seg, idx) => (
-             <div key={idx} className="relative pl-8 group">
-                {/* Connector Line */}
-                {(idx !== journey.segments.length - 1 ||
-                  (idx === journey.segments.length - 1 && seg.type === 'walk')) && (
-                  <div
-                    className={`absolute left-[15px] top-8 ${
-                      idx === journey.segments.length - 1 ? 'bottom-[-48px]' : 'bottom-[-24px]'
-                    } w-1 ${seg.type === 'bus' ? 'bg-p2p-blue' : 'border-l-2 border-dashed border-gray-300 ml-[3px]'}`}
-                  />
-                )}
-
-                {/* Icon Marker */}
-                <div className={`absolute left-0 top-0 w-8 h-8 rounded-full flex items-center justify-center z-10 border-2 border-white shadow-sm ${
-                  seg.type === 'bus' ? 'bg-p2p-blue text-white' : 'bg-gray-400 text-white'
-                }`}>
-                  {seg.type === 'bus' ? <Bus size={16} /> : <User size={16} />}
-                </div>
-
-                {/* Content */}
-                <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
-                   <div className="flex justify-between items-start mb-2">
-                     <h3 className="font-bold text-gray-900">{seg.instruction}</h3>
-                     <span className="text-sm font-semibold text-gray-500 whitespace-nowrap">
-                       {formatDuration(seg.durationMin * 60)}
-                     </span>
-                   </div>
-                   
-                   {seg.type === 'bus' && (
-                     <div className="mt-2">
-                        <div className="inline-block bg-p2p-blue text-white text-xs font-bold px-2 py-0.5 rounded mb-2">
-                          {seg.routeName}
-                        </div>
-                        <div className="text-sm text-gray-600 space-y-1">
-                          {seg.busOrderedStopIds && seg.busOrderedStopIds.length > 0 ? (
-                            <>
-                              <div className="font-medium text-gray-700">Board at {seg.fromName}</div>
-                              {seg.busOrderedStopIds.slice(1, -1).map((id) => (
-                                <div key={id} className="flex items-center pl-3 border-l-2 border-gray-200 ml-1">
-                                  <span className="text-gray-500">{stopNameById.get(id) ?? id}</span>
-                                </div>
-                              ))}
-                              <div className="font-medium text-gray-700">Get off at {seg.toName}</div>
-                            </>
-                          ) : (
-                            <>
-                              <div className="flex items-center"><div className="w-1.5 h-1.5 rounded-full bg-gray-300 mr-2"/> Board at {seg.fromName}</div>
-                              <div className="flex items-center"><div className="w-1.5 h-1.5 rounded-full bg-gray-300 mr-2"/> Get off at {seg.toName}</div>
-                            </>
-                          )}
-                          {seg.stopsCount != null && (
-                            <div className="text-xs text-gray-400 mt-1 pl-3.5">{seg.stopsCount} stops</div>
-                          )}
-                        </div>
-                     </div>
-                   )}
-
-                  {seg.type === 'walk' && (
-                    <div className="space-y-1">
-                      <div className="text-sm text-gray-500">
-                        Walk {formatDistanceImperial(seg.distanceMeters)}
-                      </div>
-                      {seg.steps && seg.steps.length > 0 && (
-                        <ul className="mt-2 space-y-1 text-xs text-gray-500 border-l-2 border-gray-200 pl-3">
-                          {seg.steps.map((step, i) => (
-                            <li key={i}>{step.instruction}</li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  )}
-                </div>
-             </div>
-           ))}
-           
-           {/* Destination Marker */}
-           <div className="relative pl-8">
-             <div className="absolute left-0 top-0 w-8 h-8 rounded-full bg-p2p-red text-white flex items-center justify-center z-10 border-2 border-white shadow-sm">
-               <MapPin size={16} />
-             </div>
-             <div className="pt-1">
-               <div className="font-bold text-gray-900 text-lg">{journey.destination.name}</div>
-               <div className="text-sm text-gray-500">You have arrived</div>
-             </div>
-           </div>
-        </div>
-      </div>
+      <TripResults
+        trip={plannedTrip}
+        stopNameById={stopNameById}
+        refreshing={refreshing}
+        onModeChange={(mode) => onPlannedTripChange({ ...plannedTrip, mode })}
+        onStart={onViewOnMap}
+        onNewSearch={handleNewSearch}
+        onRefresh={() => void planTrip(plannedTrip.request.start, plannedTrip.request.destination, { mode: plannedTrip.mode })}
+      />
     );
   }
 
@@ -842,7 +466,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
     <div ref={dropdownScrollRef} className="max-h-[60vh] overflow-y-auto pt-4 pb-2 px-2" style={{ WebkitOverflowScrolling: 'touch' }}>
       {showDropdownUnfocused && (
         <>
-          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2">Top Destinations</h3>
+          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2">Top destinations</h3>
           <ul className="space-y-1" role="listbox" aria-label="Top destinations" aria-activedescendant={selectableItems.length ? `dropdown-option-${highlightedIndex}` : undefined}>
             {TOP_DESTINATIONS.map((dest, i) => (
               <li key={dest.id} role="option" aria-selected={highlightedIndex === i}>
@@ -870,7 +494,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
         <div className="space-y-4">
           <section aria-labelledby="recent-heading">
             <div className="flex items-center justify-between mb-1 px-2">
-              <h3 id="recent-heading" className="text-xs font-bold text-gray-400 uppercase tracking-wider">Recent Searches</h3>
+              <h3 id="recent-heading" className="text-xs font-bold text-gray-400 uppercase tracking-wider">Recent searches</h3>
               {recentSearches.length > 0 && (
                 <button
                   type="button"
@@ -908,7 +532,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
             )}
           </section>
           <section aria-labelledby="top-locations-heading">
-            <h3 id="top-locations-heading" className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2">Top Locations</h3>
+            <h3 id="top-locations-heading" className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2">Top locations</h3>
             <ul className="space-y-1" role="listbox" aria-label="Top locations" aria-activedescendant={selectableItems.length ? `dropdown-option-${highlightedIndex}` : undefined}>
               {TOP_DESTINATIONS.map((dest, i) => {
                 const idx = recentSearches.length + i;
@@ -939,7 +563,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
       {showDropdownFocusedQuery && (
         <div className="space-y-4">
           <div>
-            <h3 id="top-locations-heading" className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2">Top Locations</h3>
+            <h3 id="top-locations-heading" className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2">Top locations</h3>
             {topLocationSuggestions.length > 0 ? (
               <ul className="space-y-1" role="listbox" aria-label="Top locations" aria-activedescendant={selectableItems.length ? `dropdown-option-${highlightedIndex}` : undefined}>
                 {topLocationSuggestions.map((dest, i) => (
@@ -968,7 +592,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
           </div>
           <div>
             <div className="flex items-center justify-between mb-1 px-2">
-              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Address Results</h3>
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Address results</h3>
               {geocodeLoading && <span className="text-[11px] text-gray-400">Searching…</span>}
             </div>
             {addressResults.length > 0 ? (
@@ -1006,36 +630,20 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
   );
 
   return (
-    <div className="flex flex-col h-full bg-gray-50 p-4">
-      <div className="mb-2 mt-2">
-        <h2 className="text-2xl font-black text-gray-900 mb-4">Plan Trip</h2>
+    <div className="trip-view trip-search flex flex-col h-full">
+      <div>
+        <h2 className="trip-title">Where to?</h2>
 
         {/* Search widget — compact (single To) or expanded (From + To) */}
-        {!expandedSearch ? (
-          <div className={`bg-white shadow-sm border border-gray-200 overflow-visible ${showDropdownUnfocused ? 'rounded-xl' : 'rounded-t-xl border-b-0'}`}>
-            {searchFocused && (
-              <div className="px-4 pt-3 pb-1 flex items-center justify-between gap-2">
-                <span className="text-sm text-gray-500">
-                  From: {fromLocation === 'current' ? 'Current Location' : fromLocation.name}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setExpandedSearch(true)}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-medium text-p2p-blue hover:bg-p2p-blue/10 transition-colors"
-                  aria-label="Change start location"
-                >
-                  <Pencil size={14} />
-                  Edit From
-                </button>
-              </div>
-            )}
+        {!expandedSearch ? (<>
+          <div className={`trip-card bg-white shadow-sm border border-gray-200 overflow-visible ${showDropdownUnfocused ? 'rounded-xl' : 'rounded-t-xl border-b-0'}`}>
             <div className="relative">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none z-10" size={20} aria-hidden />
               <input
                 id="plan-trip-destination"
                 type="text"
                 autoComplete="off"
-                placeholder="Where do you want to go?"
+                placeholder="Search a place or address"
                 aria-label="Destination search"
                 aria-expanded={searchFocused || showDropdownUnfocused}
                 aria-haspopup="listbox"
@@ -1053,8 +661,12 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
               )}
             </div>
           </div>
-        ) : (
-          <div className={`bg-white shadow-sm border border-gray-200 overflow-visible ${(fromSearchFocused || searchFocused) ? 'rounded-t-xl border-b-0' : 'rounded-xl'}`}>
+          <p className="trip-from">
+            From: {fromLocation === 'current' ? 'Current location' : fromLocation.name}
+            <button type="button" onClick={() => setExpandedSearch(true)} aria-label="Change start location"><Pencil size={13} aria-hidden="true" />Change</button>
+          </p>
+        </>) : (
+          <div className={`trip-card bg-white shadow-sm border border-gray-200 overflow-visible ${(fromSearchFocused || searchFocused) ? 'rounded-t-xl border-b-0' : 'rounded-xl'}`}>
             <div className="p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-gray-700">Edit start & destination</span>
@@ -1165,7 +777,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
                 <button
                   type="button"
                   onClick={handlePlanTripFromExpanded}
-                  className="w-full py-3 px-4 bg-p2p-blue text-white font-bold text-base rounded-xl hover:bg-p2p-blue/90 transition-colors"
+                  className="trip-primary w-full py-3 px-4 bg-p2p-blue text-white font-bold text-base rounded-xl hover:bg-p2p-blue/90 transition-colors"
                 >
                   Plan trip
                 </button>
@@ -1175,10 +787,11 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
         )}
 
         {/* Top Destinations widget — separate card when dropdown is closed */}
+        {planError && <p className="trip-error" role="alert">{planError}</p>}
         {showDropdownUnfocused && (
-          <div className="mt-4 sm:mt-5 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="p-4">
-              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Top Destinations</h3>
+          <section className="trip-section" aria-labelledby="trip-top-title">
+            <div>
+              <h3 id="trip-top-title" className="trip-section-title">Top destinations</h3>
               <ul className="space-y-1" role="listbox" aria-label="Top destinations" aria-activedescendant={selectableItems.length ? `dropdown-option-${highlightedIndex}` : undefined}>
                 {TOP_DESTINATIONS.map((dest, i) => (
                   <li key={dest.id} role="option" aria-selected={highlightedIndex === i}>
@@ -1188,7 +801,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
                       data-dropdown-index={i}
                       onClick={() => runSelection({ type: 'top', dest })}
                       onMouseEnter={() => setHighlightedIndex(i)}
-                      className={`w-full px-3 py-2.5 rounded-lg text-left flex items-center gap-2 active:scale-[0.99] transition-transform ${highlightedIndex === i ? 'bg-p2p-blue/10' : 'hover:bg-gray-50'}`}
+                      className={`trip-row ${highlightedIndex === i ? 'is-active' : ''}`}
                     >
                       <MapPin size={18} className="text-gray-400 shrink-0" />
                       <div className="min-w-0 overflow-hidden">
@@ -1201,19 +814,17 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
                 ))}
               </ul>
             </div>
-          </div>
+          </section>
         )}
         {showDropdownUnfocused && (
-          <div className="mt-4 sm:mt-5 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="p-4">
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Recent & Favorite Routes</h3>
-              </div>
+          <section className="trip-section" aria-labelledby="trip-routes-title">
+            <div>
+              <h3 id="trip-routes-title" className="trip-section-title">Recent and favorite routes</h3>
               {savedRoutes.length > 0 ? (
                 <ul className="space-y-1">
                   {savedRoutes.slice(0, 6).map((item) => (
                     <li key={item.id}>
-                      <div className="w-full px-3 py-2.5 rounded-lg flex items-center gap-2 hover:bg-gray-50">
+                      <div className="trip-row">
                         <button
                           type="button"
                           onClick={() => handleRunSavedRoute(item)}
@@ -1241,13 +852,12 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm text-gray-400">Plan a route to start building your recent and favorite routes.</p>
+                <p className="trip-empty">Plan a trip to start building your recent and favorite routes.</p>
               )}
             </div>
-          </div>
+          </section>
         )}
       </div>
-      <div className="flex-1 min-h-0 pb-20" />
     </div>
   );
 };

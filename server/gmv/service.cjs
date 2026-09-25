@@ -81,6 +81,7 @@ function createGmvService({
   async function getNetwork() {
     const { value } = await cache.getOrFetch('network', config.NETWORK_TTL_MS, buildNetwork, {
       staleMs: config.NETWORK_STALE_MS,
+      errorTtlMs: config.NETWORK_ERROR_TTL_MS,
     });
     return { ...value, routes: value.routes.map((r) => ({ ...r, defaultPatternId: resolveDefaultPatternId(r) })) };
   }

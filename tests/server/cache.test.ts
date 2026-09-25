@@ -75,4 +75,37 @@ describe('createTtlCache', () => {
     await cache.getOrFetch('k', 1000, async () => 'v1');
     expect(cache.peek('k')).toMatchObject({ value: 'v1' });
   });
+
+  it('retries failures on a separate short TTL and shares the recovery request', async () => {
+    const { cache, advance } = setup();
+    const fetchFn = vi.fn().mockRejectedValueOnce(new Error('down')).mockResolvedValue('recovered');
+    const options = { errorTtlMs: 30_000 };
+    await expect(cache.getOrFetch('network', 21_600_000, fetchFn, options)).rejects.toThrow('down');
+    advance(29_999);
+    await expect(cache.getOrFetch('network', 21_600_000, fetchFn, options)).rejects.toThrow('down');
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    advance(1);
+    const recovered = await Promise.all([
+      cache.getOrFetch('network', 21_600_000, fetchFn, options),
+      cache.getOrFetch('network', 21_600_000, fetchFn, options),
+    ]);
+    expect(recovered.map(r => r.value)).toEqual(['recovered', 'recovered']);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    advance(21_599_999);
+    expect((await cache.getOrFetch('network', 21_600_000, fetchFn, options)).value).toBe('recovered');
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not extend the age of stale data when using a shorter error TTL', async () => {
+    const { cache, advance } = setup();
+    const fetchFn = vi.fn().mockResolvedValueOnce('last good').mockRejectedValue(new Error('down'));
+    const options = { staleMs: 5000, errorTtlMs: 100 };
+    await cache.getOrFetch('network', 1000, fetchFn, options);
+    advance(1000);
+    expect(await cache.getOrFetch('network', 1000, fetchFn, options)).toMatchObject({ value: 'last good', stale: true, fetchedAt: 0 });
+    advance(100);
+    expect(await cache.getOrFetch('network', 1000, fetchFn, options)).toMatchObject({ stale: true, fetchedAt: 0 });
+    advance(4900);
+    await expect(cache.getOrFetch('network', 1000, fetchFn, options)).rejects.toThrow('down');
+  });
 });

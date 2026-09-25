@@ -67,6 +67,41 @@ function setup(data = fixtures()) {
 }
 
 describe('getNetwork', () => {
+  it('recovers from a cold-load failure after 30 seconds, not six hours', async () => {
+    const { service, client, advance } = setup();
+    client.state.failing = true;
+    await expect(service.getNetwork()).rejects.toThrow('GMV down');
+    client.state.failing = false;
+    advance(29_999);
+    await expect(service.getNetwork()).rejects.toThrow('GMV down');
+    advance(1);
+    const network = await service.getNetwork();
+    expect(network.routes).toHaveLength(2);
+    expect(network.stops).toHaveLength(4);
+  });
+
+  it('keeps route geometry and stops when service has no vehicles', async () => {
+    const data = fixtures();
+    data['/routes/6566/vehicles'] = [];
+    const { service } = setup(data);
+    expect((await service.getSnapshot()).status).toBe('no-service');
+    const network = await service.getNetwork();
+    expect(network.routes.every((r: any) => r.patterns.some((p: any) => p.geometry.coordinates.length > 1 && p.stops.length > 0))).toBe(true);
+    expect(network.stops).toHaveLength(4);
+  });
+
+  it('retains a last-good network on failure only within the existing stale window', async () => {
+    const { service, client, advance } = setup();
+    const network = await service.getNetwork();
+    client.state.failing = true;
+    advance(6 * 60 * 60 * 1000);
+    expect(await service.getNetwork()).toEqual(network);
+    advance(30_000);
+    expect(await service.getNetwork()).toEqual(network);
+    advance(12 * 60 * 60 * 1000);
+    await expect(service.getNetwork()).rejects.toThrow('GMV down');
+  });
+
   it('builds routes with canonical ids, decoded patterns and deduped stops', async () => {
     const { service } = setup();
     const net = await service.getNetwork();

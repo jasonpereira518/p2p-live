@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import type { Coordinate, LiveVehicle, Stop } from '../types';
 import { X, Navigation } from 'lucide-react';
 import { getDistanceMeters, getWalkTimeMinutes } from '../utils/geo';
@@ -17,12 +17,14 @@ function getFullnessMeta(percent: number): { label: string; textClass: string; b
 interface BusDetailSheetProps {
   vehicle: LiveVehicle;
   stops: Stop[];
-  userLocation: Coordinate;
+  userLocation: Coordinate | null;
   onClose: () => void;
 }
 
 export const BusDetailSheet: React.FC<BusDetailSheetProps> = ({ vehicle, stops, userLocation, onClose }) => {
   const { network } = useTransit();
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
   const stopsById = useMemo(() => new Map(stops.map((s) => [s.id, s])), [stops]);
   const orderedStopIds = useMemo(
     () => getPattern(network, vehicle.patternId)?.stops.map((s) => s.stopId) ?? [],
@@ -31,7 +33,7 @@ export const BusDetailSheet: React.FC<BusDetailSheetProps> = ({ vehicle, stops, 
 
   const nextStop = vehicle.nextStopId ? stopsById.get(vehicle.nextStopId) ?? null : null;
   const walkToNextStop = useMemo(
-    () => (nextStop ? getWalkTimeMinutes(getDistanceMeters(userLocation, nextStop)) : null),
+    () => (nextStop && userLocation ? getWalkTimeMinutes(getDistanceMeters(userLocation, nextStop)) : null),
     [nextStop, userLocation]
   );
 
@@ -63,20 +65,33 @@ export const BusDetailSheet: React.FC<BusDetailSheetProps> = ({ vehicle, stops, 
 
   useEffect(() => {
     const prev = document.body.style.overflow;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = prev;
+      if (previousFocus?.isConnected) previousFocus.focus();
     };
   }, []);
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end sm:items-center sm:justify-center pointer-events-none">
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center sm:justify-center pointer-events-none" onKeyDown={e => {
+      if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
+      if (e.key === 'Tab') {
+        const buttons = sheetRef.current?.querySelectorAll<HTMLElement>('button, a[href], [tabindex="0"]');
+        if (!buttons?.length) return;
+        const first = buttons[0], last = buttons[buttons.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    }}>
       <div
         className="absolute inset-0 bg-black/40 pointer-events-auto backdrop-blur-sm transition-opacity"
         onClick={onClose}
       />
       <div
-        className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl shadow-2xl z-50 pointer-events-auto max-h-[85vh] flex flex-col animate-slide-up sm:m-4"
+        className="bus-detail-sheet bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl shadow-2xl z-50 pointer-events-auto max-h-[85vh] flex flex-col animate-slide-up sm:m-4"
+        ref={sheetRef} role="dialog" aria-modal="true" aria-label={`${vehicle.routeName} bus details`}
         style={{ minHeight: 0 }}
       >
         <div className="shrink-0">
@@ -90,14 +105,15 @@ export const BusDetailSheet: React.FC<BusDetailSheetProps> = ({ vehicle, stops, 
                   vehicle.routeId === 'P2P_EXPRESS' ? 'bg-p2p-blue' : 'bg-p2p-red'
                 }`}
               >
-                {vehicle.routeName.toUpperCase()}
+                {vehicle.routeName}
               </span>
               <h2 className="text-2xl font-bold text-gray-900">{vehicle.routeName}</h2>
               <p className="text-gray-500 text-sm">{vehicle.name}</p>
             </div>
             <button
+              ref={closeRef}
               onClick={onClose}
-              className="p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
+              className="bus-detail-close p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
               aria-label="Close"
             >
               <X size={20} className="text-gray-600" />
@@ -106,7 +122,7 @@ export const BusDetailSheet: React.FC<BusDetailSheetProps> = ({ vehicle, stops, 
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto p-5 pt-4" style={{ WebkitOverflowScrolling: 'touch' }}>
-          <div className="mb-6 p-4 bg-gray-50 rounded-xl border border-gray-100">
+          <div className="bus-detail-summary mb-6 p-4 bg-gray-50 rounded-xl border border-gray-100">
             <div className="flex items-center gap-3 mb-3">
               <div className={`w-2 h-2 rounded-full ${vehicle.stale ? 'bg-gray-400' : 'bg-green-500 animate-pulse'}`} />
               <span className="text-sm font-semibold text-gray-700">
@@ -124,8 +140,8 @@ export const BusDetailSheet: React.FC<BusDetailSheetProps> = ({ vehicle, stops, 
 
             <div className="flex justify-between items-center pl-5 mb-3">
               <div>
-                <div className="text-3xl font-bold text-gray-900">{formatEta(vehicle.nextStopEtaSec)}</div>
-                <div className="text-xs text-gray-400">Estimated Arrival</div>
+                <div className="bus-detail-eta text-3xl font-bold text-gray-900">{formatEta(vehicle.nextStopEtaSec)}</div>
+                <div className="text-xs text-gray-400">Estimated arrival</div>
               </div>
               {walkToNextStop !== null && (
                 <div className="text-right">
@@ -160,7 +176,7 @@ export const BusDetailSheet: React.FC<BusDetailSheetProps> = ({ vehicle, stops, 
           </div>
 
           <div>
-            <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">Upcoming Stops</h3>
+            <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">Upcoming stops</h3>
             {upcoming.length === 0 ? (
               <p className="text-sm text-gray-500">No upcoming stop predictions for this bus.</p>
             ) : (

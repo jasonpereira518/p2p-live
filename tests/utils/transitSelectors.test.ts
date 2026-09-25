@@ -25,6 +25,14 @@ describe('transitSelectors', () => {
     expect(getRouteStops(network, null, 'P2P_EXPRESS').map((s) => s.id)).toEqual(['a', 'b', 'c']);
   });
 
+  it.each(['no-service', 'unavailable'] as const)('keeps default paths and stops with a %s snapshot', status => {
+    const snapshot = makeSnapshot({ status, vehicles: [], activePatternIds: {}, arrivalsByStop: {} });
+    expect(getActivePattern(network, snapshot, 'P2P_EXPRESS')?.id).toBe(10);
+    expect(getActivePattern(network, snapshot, 'BAITY_HILL')?.id).toBe(20);
+    expect(getActivePattern(network, snapshot, 'P2P_EXPRESS')?.geometry.coordinates.length).toBeGreaterThan(1);
+    expect(getActiveStops(network, snapshot).map(s => s.id)).toEqual(['a', 'b', 'c', 'e']);
+  });
+
   it('unions active stops across routes without duplicates', () => {
     expect(getActiveStops(network, null).map((s) => s.id)).toEqual(['a', 'b', 'c', 'e']);
   });

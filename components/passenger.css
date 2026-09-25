@@ -1,0 +1,68 @@
+/* Scoped to the public rider app; login and staff pages do not use this root. */
+.passenger-app {
+  --rider-font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --rider-bg: #f4f4f4;
+  --rider-surface: #fff;
+  --rider-ink: #111;
+  --rider-muted: #666;
+  --rider-border: #dedede;
+  --rider-blue: #418fc5;
+  --rider-red: #c33934;
+  --rider-blue-tint: #edf5fb;
+  --rider-red-tint: #fcf0ef;
+  --rider-radius: 10px;
+  --rider-shadow: 0 4px 7px #00000008;
+  --rider-space: 20px;
+  --rider-section-gap: 32px;
+  font-family: var(--rider-font);
+  color: var(--rider-ink);
+  background: var(--rider-bg);
+}
+.passenger-app.is-light { --rider-bg: #fcfdfd; }
+.passenger-app .route-filter { border-width: 2px; border-style: solid; border-color: #aaa; background: var(--rider-surface); color: var(--rider-muted); }
+.passenger-app .route-filter[data-route="P2P_EXPRESS"] { --filter-color: var(--rider-blue); --filter-tint: var(--rider-blue-tint); }
+.passenger-app .route-filter[data-route="BAITY_HILL"] { --filter-color: var(--rider-red); --filter-tint: var(--rider-red-tint); }
+.passenger-app .route-filter[aria-pressed="true"] { border-color: var(--filter-color); background: var(--filter-tint); color: var(--rider-ink); }
+.passenger-app .route-filter[aria-pressed="true"] > svg { color: var(--filter-color); }
+.passenger-app .route-filter > svg { flex-shrink: 0; }
+.passenger-app .route-filter:focus-visible { outline: 3px solid #174e75; outline-offset: 3px; }
+.passenger-app .home-header.compact-passenger-header { min-height: 64px; padding: 8px 16px; background: var(--rider-surface); }
+.passenger-app .passenger-plan-scroll { background: var(--rider-bg); padding-bottom: calc(5rem + env(safe-area-inset-bottom)); }
+.passenger-app .trip-view { font-family: var(--rider-font); color: var(--rider-ink); background: var(--rider-bg); width: 100%; max-width: 640px; height: auto; min-height: 100%; margin: 0 auto; padding: 24px var(--rider-space); }
+.passenger-app .trip-view h2 { font-size: 20px; font-weight: 650; color: var(--rider-ink); }
+.passenger-app .trip-view h3 { font-size: 16px; font-weight: 600; color: var(--rider-ink); }
+.passenger-app .trip-view .uppercase { text-transform: none; letter-spacing: normal; }
+.passenger-app .trip-view input { font-family: var(--rider-font); font-size: 16px; font-weight: 400; color: var(--rider-ink); min-height: 48px; }
+.passenger-app .trip-view input::placeholder { color: var(--rider-muted); }
+.passenger-app .trip-card { border-color: var(--rider-border); border-radius: var(--rider-radius); box-shadow: var(--rider-shadow); background: var(--rider-surface); }
+.passenger-app .trip-view [data-dropdown-index] { min-height: 52px; border-radius: 8px; }
+.passenger-app .trip-view [data-dropdown-index] .truncate { white-space: normal; overflow-wrap: anywhere; }
+.passenger-app .trip-view [data-dropdown-index] .text-xs { font-size: 13px; line-height: 1.4; }
+.passenger-app .trip-view [aria-selected="true"] > button { background: var(--rider-blue-tint); }
+.passenger-app .bus-detail-sheet .bus-detail-eta { font-size: 32px; line-height: 1.2; font-weight: 400; font-variant-numeric: tabular-nums; }
+.passenger-app .trip-primary { min-height: 44px; border-radius: var(--rider-radius); box-shadow: none; font-weight: 600; background: #216d9c; }
+.passenger-app .trip-view button:focus-visible, .passenger-app .bus-detail-sheet button:focus-visible { outline: 3px solid #174e75; outline-offset: 3px; }
+.passenger-app .trip-view svg, .passenger-app .bus-detail-sheet svg,
+.passenger-app .campus-toolbar svg, .passenger-app .campus-controls svg,
+.passenger-app .campus-sheet svg { stroke-width: 1.5; }
+.passenger-app .campus-map { --campus-ink: var(--rider-ink); --campus-muted: var(--rider-muted); --campus-border: var(--rider-border); font-family: var(--rider-font); }
+.passenger-app .campus-chip { gap: 5px; padding: 8px; font-weight: 500; border-radius: var(--rider-radius); }
+.passenger-app .campus-count { color: var(--rider-muted); }
+.passenger-app .campus-control, .passenger-app .campus-options { border-radius: var(--rider-radius); box-shadow: var(--rider-shadow); }
+.passenger-app .campus-options button { font-size: 14px; }
+.passenger-app .campus-sheet { padding: var(--rider-space); border-radius: 16px; box-shadow: var(--rider-shadow); }
+.passenger-app .campus-sheet h2 { font-size: 20px; font-weight: 650; letter-spacing: normal; }
+.passenger-app .campus-arrival, .passenger-app .campus-hint, .passenger-app .campus-picker, .passenger-app .campus-sheet details { font-size: 14px; line-height: 1.5; }
+.passenger-app .campus-eyebrow, .passenger-app .campus-picker small { font-size: 12px; }
+.passenger-app .campus-arrival-time { font-size: 18px; font-weight: 500; }
+.passenger-app .campus-primary { border-radius: var(--rider-radius); font-size: 14px; font-weight: 600; }
+.passenger-app .bus-detail-sheet { font-family: var(--rider-font); color: var(--rider-ink); border-radius: 16px 16px 0 0; box-shadow: 0 -4px 24px #00000012; background: var(--rider-surface); }
+.passenger-app .bus-detail-sheet h2 { font-size: 20px; font-weight: 650; }
+.passenger-app .bus-detail-sheet h3 { font-size: 20px; font-weight: 650; color: var(--rider-ink); text-transform: none; letter-spacing: normal; }
+.passenger-app .bus-detail-sheet .bus-detail-summary { background: var(--rider-bg); border: 0; border-radius: var(--rider-radius); }
+.passenger-app .bus-detail-sheet .bus-detail-close { min-width: 44px; min-height: 44px; }
+.passenger-app .bus-detail-sheet .truncate { white-space: normal; overflow-wrap: anywhere; }
+@media(min-width:640px) { .passenger-app .bus-detail-sheet { border-radius: 16px; } }
+@media(prefers-reduced-motion:reduce) {
+  .passenger-app .trip-view *, .passenger-app .bus-detail-sheet *, .passenger-app .home-header * { animation: none !important; transition: none !important; }
+}

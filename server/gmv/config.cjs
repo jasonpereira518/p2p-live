@@ -22,6 +22,8 @@ const DEFAULT_PATTERN = { P2P_EXPRESS: 25545, BAITY_HILL: 25535 };
 const SPEED_TO_MPS = 0.44704;
 
 const NETWORK_TTL_MS = 6 * 60 * 60 * 1000;
+/** A failed load must not block route browsing for the successful-data TTL. */
+const NETWORK_ERROR_TTL_MS = 30 * 1000;
 /** Extra time static data may be served after a failed refresh (18 h total, under the 24 h license limit). */
 const NETWORK_STALE_MS = 12 * 60 * 60 * 1000;
 /** GMV asks consumers to poll vehicles no more often than every 6 seconds. */
@@ -40,6 +42,7 @@ module.exports = {
   DEFAULT_PATTERN,
   SPEED_TO_MPS,
   NETWORK_TTL_MS,
+  NETWORK_ERROR_TTL_MS,
   NETWORK_STALE_MS,
   SNAPSHOT_TTL_MS,
   SNAPSHOT_STALE_MS,

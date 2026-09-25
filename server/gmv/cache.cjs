@@ -17,7 +17,7 @@ function createTtlCache({ now = Date.now } = {}) {
     throw error;
   }
 
-  async function getOrFetch(key, ttlMs, fetchFn, { staleMs = 0 } = {}) {
+  async function getOrFetch(key, ttlMs, fetchFn, { staleMs = 0, errorTtlMs = ttlMs } = {}) {
     const entry = entries.get(key);
     if (entry && now() - entry.fetchedAt < ttlMs) {
       hits += 1;
@@ -25,7 +25,7 @@ function createTtlCache({ now = Date.now } = {}) {
     }
 
     const failure = failures.get(key);
-    if (failure && now() - failure.at < ttlMs) {
+    if (failure && now() - failure.at < errorTtlMs) {
       return staleOrThrow(key, ttlMs, staleMs, failure.error);
     }
 

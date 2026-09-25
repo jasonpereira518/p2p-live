@@ -40,6 +40,8 @@ export interface JourneySegment {
   fromCoords: Coordinate;
   toCoords: Coordinate;
   durationMin: number;
+  /** Exact duration; durationMin is rounded up for display. */
+  durationSec?: number;
   distanceMeters: number;
   instruction: string;
   // Walk: Mapbox geometry + steps
@@ -50,6 +52,8 @@ export interface JourneySegment {
   routeName?: string;
   stopsCount?: number;
   waitTimeMin?: number;
+  /** Exact wait at the board stop after walking there. */
+  waitSec?: number;
   /** Whether waitTimeMin comes from a live prediction or the timetable. */
   waitSource?: 'live' | 'scheduled';
   busSegmentGeometry?: LineStringGeometry;
