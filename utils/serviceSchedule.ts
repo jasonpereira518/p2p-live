@@ -72,6 +72,10 @@ export function getRouteFrequencyMin(route: ServiceRouteKey): number | null {
 
 function serviceMinuteToDate(now: Date, serviceMinute: number): Date {
   const out = new Date(now);
+  // 12:00 AM–3:00 AM belongs to the previous evening's service day, so anchor there.
+  if (now.getHours() * 60 + now.getMinutes() <= END_MINUTE) {
+    out.setDate(out.getDate() - 1);
+  }
   if (serviceMinute >= START_MINUTE) {
     out.setHours(Math.floor(serviceMinute / 60), serviceMinute % 60, 0, 0);
   } else {

@@ -8,7 +8,8 @@ import { getRecentSearches, addRecentSearch, clearRecentSearches, type RecentSea
 import { getSavedRoutes, recordRouteUsage, toggleSavedRouteFavorite, type SavedRouteItem } from '../storage/savedRoutes';
 import { computeMultimodalRoute } from '../utils/multimodalRouting';
 import { formatDuration, formatDistanceImperial, formatETA } from '../utils/format';
-import { ROUTE_CONFIGS } from '../data/routeConfig';
+import { ROUTE_IDS } from '../data/routes';
+import { useTransit } from '../context/TransitProvider';
 import { API } from '../utils/api';
 import { isRouteOperatingNow } from '../utils/serviceSchedule';
 
@@ -71,13 +72,22 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
     ? userLocation
     : { lat: fromLocation.lat, lon: fromLocation.lon };
   const activeQuery = expandedSearch && fromSearchFocused ? fromQuery : query;
-  const anyRouteInService = ROUTE_CONFIGS.some((route) => isRouteOperatingNow(route.routeId));
+  const anyRouteInService = ROUTE_IDS.some((routeId) => isRouteOperatingNow(routeId));
 
-  const stopNameById = useMemo(() => {
-    const m = new Map<string, string>();
-    ROUTE_CONFIGS.forEach((r) => r.stops.forEach((s) => m.set(s.id, s.name)));
-    return m;
-  }, []);
+  const { network, snapshot } = useTransit();
+  // Latest transit data for routing without re-creating every handler on each poll.
+  const transitRef = useRef({ network, snapshot });
+  transitRef.current = { network, snapshot };
+  const planRoute = useCallback(
+    (input: { origin: Coordinate; destination: Destination }) =>
+      computeMultimodalRoute({ ...input, ...transitRef.current }),
+    []
+  );
+
+  const stopNameById = useMemo(
+    () => new Map((network?.stops ?? []).map((s) => [s.id, s.name] as const)),
+    [network]
+  );
 
   useEffect(() => () => { if (blurTimerRef.current) clearTimeout(blurTimerRef.current); }, []);
 
@@ -147,7 +157,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
       refreshRecent();
       setRoutingLoading(true);
       try {
-        const newJourney = await computeMultimodalRoute({
+        const newJourney = await planRoute({
           origin,
           destination: dest,
         });
@@ -208,7 +218,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
       refreshRecent();
       setRoutingLoading(true);
       try {
-        const newJourney = await computeMultimodalRoute({
+        const newJourney = await planRoute({
           origin,
           destination: dest,
         });
@@ -311,7 +321,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
     if (toDestination == null) return;
     setRoutingLoading(true);
     try {
-      const newJourney = await computeMultimodalRoute({ origin, destination: toDestination });
+      const newJourney = await planRoute({ origin, destination: toDestination });
       setJourney(newJourney);
       onPlanRoute(newJourney);
       recordRouteUsage({
@@ -370,7 +380,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
       refreshRecent();
       setRoutingLoading(true);
       try {
-        const newJourney = await computeMultimodalRoute({
+        const newJourney = await planRoute({
           origin: routeOrigin,
           destination,
         });
@@ -627,7 +637,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
             <div className="ml-auto">
               <div className="inline-flex flex-col max-w-[180px] md:max-w-[220px] rounded-xl border border-amber-200 bg-amber-50 px-2.5 py-2 md:px-3 md:py-2.5 shadow-sm text-[11px] md:text-xs text-gray-900">
                 <div className="text-[9px] md:text-[10px] font-semibold uppercase tracking-wide text-amber-700 mb-1">
-                  Timing
+                  Timing{busSeg?.waitSource ? ` · ${busSeg.waitSource === 'live' ? 'Live' : 'Scheduled'}` : ''}
                 </div>
                 {hasBus && hasBusArrivalEstimate && nextBusAt && leaveAt ? (
                   <>

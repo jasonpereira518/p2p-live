@@ -259,17 +259,6 @@ export const MOCK_COMPLAINTS: MockComplaint[] = [
 
 // --- Manager dashboard (legacy summaries; still used for stat cards) ---
 
-export const MOCK_FLEET_SUMMARY = {
-  activeBuses: 4,
-  lastUpdateAt: new Date().toISOString(),
-  trackingStale: false,
-};
-
-export const MOCK_ACTIVE_ROUTES = [
-  { id: 'baity-hill', name: 'Baity Hill', activeBuses: 2, nextArrivalSummary: 'Student Union in 3 min', status: 'on-time' as const },
-  { id: 'p2p-express', name: 'P2P Express', activeBuses: 2, nextArrivalSummary: 'Davis Library in 5 min', status: 'on-time' as const },
-];
-
 export const MOCK_DRIVERS_CLOCKED = [
   { id: 'd1', name: 'Marcus Williams', busId: 'bus-104', routeName: 'P2P Express', clockInAt: Date.now() - 2 * 60 * 60 * 1000, status: 'clocked-in' as const },
   { id: 'd2', name: 'Elena Vasquez', busId: 'bus-202', routeName: 'Baity Hill', clockInAt: Date.now() - 1 * 60 * 60 * 1000, status: 'clocked-in' as const },
@@ -292,8 +281,6 @@ export const MOCK_RIDERSHIP = {
 
 // --- Stat card aggregates (for top-of-dashboard) ---
 
-export const MOCK_STAT_ACTIVE_BUSES = 4;
 export const MOCK_STAT_DRIVERS_LOGGED_IN = 2;
 export const MOCK_STAT_BOARDINGS_TODAY = 620;
 export const MOCK_STAT_NEW_COMPLAINTS = 4;
-export const MOCK_STAT_OFF_ROUTE_BUSES = 2;

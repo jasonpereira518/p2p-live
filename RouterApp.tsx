@@ -12,48 +12,51 @@ import { OpsManagerPage } from './pages/ops/OpsManagerPage';
 import { OpsDriverPage } from './pages/ops/OpsDriverPage';
 import { RoleGuard } from './ops/RoleGuard';
 import { OpsErrorBoundary } from './ops/ErrorBoundary';
+import { TransitProvider } from './context/TransitProvider';
 
 export function RouterApp() {
   return (
     <BrowserRouter>
-      <div className="h-full flex flex-col min-h-0">
-      <Routes>
-        <Route path="/" element={<App />} />
-        <Route path="/ops/login" element={<OpsLoginPage />} />
-        <Route
-          path="/ops/admin"
-          element={
-            <RoleGuard allowedRoles={['admin']}>
-              <OpsErrorBoundary pageName="Admin">
-                <OpsAdminPage />
-              </OpsErrorBoundary>
-            </RoleGuard>
-          }
-        />
-        <Route
-          path="/ops/manager"
-          element={
-            <RoleGuard allowedRoles={['admin', 'manager']}>
-              <OpsErrorBoundary pageName="Manager">
-                <OpsManagerPage />
-              </OpsErrorBoundary>
-            </RoleGuard>
-          }
-        />
-        <Route
-          path="/ops/driver"
-          element={
-            <RoleGuard allowedRoles={['driver']}>
-              <OpsErrorBoundary pageName="Driver">
-                <OpsDriverPage />
-              </OpsErrorBoundary>
-            </RoleGuard>
-          }
-        />
-        <Route path="/ops" element={<Navigate to="/ops/login" replace />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-      </div>
+      <TransitProvider>
+        <div className="h-full flex flex-col min-h-0">
+        <Routes>
+          <Route path="/" element={<App />} />
+          <Route path="/ops/login" element={<OpsLoginPage />} />
+          <Route
+            path="/ops/admin"
+            element={
+              <RoleGuard allowedRoles={['admin']}>
+                <OpsErrorBoundary pageName="Admin">
+                  <OpsAdminPage />
+                </OpsErrorBoundary>
+              </RoleGuard>
+            }
+          />
+          <Route
+            path="/ops/manager"
+            element={
+              <RoleGuard allowedRoles={['admin', 'manager']}>
+                <OpsErrorBoundary pageName="Manager">
+                  <OpsManagerPage />
+                </OpsErrorBoundary>
+              </RoleGuard>
+            }
+          />
+          <Route
+            path="/ops/driver"
+            element={
+              <RoleGuard allowedRoles={['driver']}>
+                <OpsErrorBoundary pageName="Driver">
+                  <OpsDriverPage />
+                </OpsErrorBoundary>
+              </RoleGuard>
+            }
+          />
+          <Route path="/ops" element={<Navigate to="/ops/login" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+        </div>
+      </TransitProvider>
     </BrowserRouter>
   );
 }

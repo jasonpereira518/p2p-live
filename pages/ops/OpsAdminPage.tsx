@@ -7,18 +7,18 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { OpsLayout } from '../../ops/OpsLayout';
 import { StatCard } from '../../components/ops/StatCard';
 import { AdminOptimizationCard } from '../../components/ops/AdminOptimizationCard';
-import { STOPS } from '../../data/p2pStops';
-import { VEHICLES } from '../../data/mockTransit';
+import { useTransit } from '../../context/TransitProvider';
 import { MOCK_COMPLAINTS, MOCK_SYSTEM_HEALTH, MOCK_LATENCY, MOCK_TRAFFIC, MOCK_ALERTS, ADMIN_OPTIMIZATION_DISPLAY } from '../../data/mockOps';
 import { computeAdminMetrics, getCachedAdminMetrics, setCachedAdminMetrics, type AdminMetrics } from '../../utils/adminMetrics';
 import { ShieldAlert } from 'lucide-react';
 
 type DiagnosticsResponse = {
   env: { nodeEnv: string; mapboxTokenConfigured: boolean; geminiKeyConfigured: boolean; geminiModel: string };
-  cache: { routeCacheEntries: number; walkCacheEntries: number };
-  errors: { failedLlmCalls: number; directionsFailures: number; routeDirectionsFailures: number };
+  cache: { walkCacheEntries: number };
+  errors: { failedLlmCalls: number; directionsFailures: number };
   memory: { rssMb: number; heapUsedMb: number; heapTotalMb: number };
   process: { pid: number; uptimeSec: number; node: string };
+  gmv?: { configured: boolean; callCount: number; lastSuccessAt: number | null; lastError: string | null; cacheHits: number };
 };
 
 function formatKm(meters: number) {
@@ -26,6 +26,8 @@ function formatKm(meters: number) {
 }
 
 export function OpsAdminPage() {
+  const { network, snapshot, vehicles } = useTransit();
+  const hasSnapshot = snapshot != null;
   const health = MOCK_SYSTEM_HEALTH;
   const alerts = MOCK_ALERTS;
   const [metrics, setMetrics] = useState<AdminMetrics | null>(() => getCachedAdminMetrics());
@@ -50,15 +52,12 @@ export function OpsAdminPage() {
   }, []);
 
   useEffect(() => {
+    if (!network || !hasSnapshot) return;
     let cancelled = false;
     (async () => {
       setMetricsLoading(metrics == null);
       try {
-        const next = await computeAdminMetrics({
-          stops: STOPS,
-          vehicles: VEHICLES,
-          complaints: MOCK_COMPLAINTS,
-        });
+        const next = await computeAdminMetrics({ network, snapshot, vehicles, complaints: MOCK_COMPLAINTS });
         if (cancelled) return;
         setMetrics(next);
         setCachedAdminMetrics(next);
@@ -70,7 +69,7 @@ export function OpsAdminPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [network, hasSnapshot]);
 
   const status = useMemo(() => {
     const p95 = metrics?.system.apiLatencyP95Ms ?? null;
@@ -333,27 +332,27 @@ export function OpsAdminPage() {
                     </div>
                     <div className="text-right">
                       <p className="text-xs font-semibold text-gray-500">Route efficiency</p>
-                      <p className="text-lg font-bold text-p2p-blue">{r?.efficiencyScore != null ? `${r.efficiencyScore}%` : rid === 'P2P_EXPRESS' ? '86%' : '79%'}</p>
+                      <p className="text-lg font-bold text-p2p-blue">{r?.efficiencyScore != null ? `${r.efficiencyScore}%` : '—'}</p>
                     </div>
                   </div>
 
                   <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                     <div className="p-3 rounded-xl bg-gray-50 border border-gray-100">
                       <p className="text-xs font-semibold text-gray-500">Loop duration</p>
-                      <p className="font-bold text-gray-900">{loopMin != null ? `${loopMin.toFixed(1)} min` : rid === 'P2P_EXPRESS' ? '18.2 min' : '22.5 min'}</p>
+                      <p className="font-bold text-gray-900">{loopMin != null ? `${loopMin.toFixed(1)} min` : '—'}</p>
                     </div>
                     <div className="p-3 rounded-xl bg-gray-50 border border-gray-100">
                       <p className="text-xs font-semibold text-gray-500">Route length</p>
-                      <p className="font-bold text-gray-900">{dist != null ? formatKm(dist) : rid === 'P2P_EXPRESS' ? '4.2 km' : '5.1 km'}</p>
+                      <p className="font-bold text-gray-900">{dist != null ? formatKm(dist) : '—'}</p>
                     </div>
                     <div className="p-3 rounded-xl bg-gray-50 border border-gray-100">
                       <p className="text-xs font-semibold text-gray-500">Headway</p>
-                      <p className="font-bold text-gray-900">{headway != null ? `${headway.toFixed(1)} min` : rid === 'P2P_EXPRESS' ? '6.1 min' : '11.2 min'}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">Avg wait ≈ {wait != null ? `${wait.toFixed(1)} min` : rid === 'P2P_EXPRESS' ? '3.0 min' : '5.6 min'}</p>
+                      <p className="font-bold text-gray-900">{headway != null ? `${headway.toFixed(1)} min` : '—'}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Avg wait ≈ {wait != null ? `${wait.toFixed(1)} min` : '—'}</p>
                     </div>
                     <div className="p-3 rounded-xl bg-gray-50 border border-gray-100">
                       <p className="text-xs font-semibold text-gray-500">Average fullness</p>
-                      <p className="font-bold text-gray-900">{r?.averageFullnessPercent != null ? `${r.averageFullnessPercent}%` : rid === 'P2P_EXPRESS' ? '76%' : '68%'}</p>
+                      <p className="font-bold text-gray-900">{r?.averageFullnessPercent != null ? `${r.averageFullnessPercent}%` : '—'}</p>
                     </div>
                     <div className="p-3 rounded-xl bg-gray-50 border border-gray-100">
                       <p className="text-xs font-semibold text-gray-500">GPS dropouts</p>
@@ -361,7 +360,7 @@ export function OpsAdminPage() {
                     </div>
                     <div className="p-3 rounded-xl bg-gray-50 border border-gray-100">
                       <p className="text-xs font-semibold text-gray-500">Tracker freezes</p>
-                      <p className="font-bold text-gray-900">{r?.trackerFreezesToday != null ? r.trackerFreezesToday : rid === 'P2P_EXPRESS' ? 1 : 2}</p>
+                      <p className="font-bold text-gray-900">{r?.trackerFreezesToday != null ? r.trackerFreezesToday : '—'}</p>
                     </div>
                   </div>
                 </div>
@@ -392,7 +391,11 @@ export function OpsAdminPage() {
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
               <h3 className="text-sm font-semibold text-gray-900 mb-3">Cache</h3>
               <ul className="text-sm text-gray-700 space-y-1">
-                <li><span className="text-gray-500">Route cache entries:</span> <span className="font-mono">{diag?.cache?.routeCacheEntries ?? 0}</span></li>
+                <li><span className="text-gray-500">GMV API:</span> <span className="font-mono">{diag?.gmv ? (diag.gmv.configured ? `${diag.gmv.callCount} calls · ${diag.gmv.cacheHits} cache hits` : 'key not set') : '—'}</span></li>
+                <li><span className="text-gray-500">GMV last success:</span> <span className="font-mono">{diag?.gmv?.lastSuccessAt ? new Date(diag.gmv.lastSuccessAt).toLocaleTimeString() : '—'}</span></li>
+                {diag?.gmv?.lastError && (
+                  <li><span className="text-gray-500">GMV last error:</span> <span className="font-mono">{diag.gmv.lastError}</span></li>
+                )}
                 <li><span className="text-gray-500">Walk cache entries:</span> <span className="font-mono">{diag?.cache?.walkCacheEntries ?? 0}</span></li>
               </ul>
             </div>
