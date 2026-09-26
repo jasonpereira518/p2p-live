@@ -43,6 +43,8 @@ import {
   type TimesheetEntry,
   type ScheduleDay,
 } from '../../storage/timesheetsSeed';
+import { ManagerMessagesPanel } from '../../components/ops/messages/ManagerMessagesPanel';
+import { useManagerMessageBadge } from '../../hooks/useManagerMessageBadge';
 
 export function OpsManagerPage() {
   const [activeTab, setActiveTab] = useState<OpsTabId>('dashboard');
@@ -69,6 +71,7 @@ export function OpsManagerPage() {
   const admins = listAdmins();
   const managers = listManagers();
   const drivers = listDrivers();
+  const messageUnreadCount = useManagerMessageBadge();
 
   useEffect(() => {
     // Dev-only seeding of fake timesheets + schedule. Safe to call in prod (no-op if already seeded).
@@ -224,7 +227,12 @@ export function OpsManagerPage() {
   return (
     <OpsLayout title="Manager">
       <div className="flex flex-col h-full min-h-0 flex-1">
-        <OpsTabs active={activeTab} onSelect={setActiveTab} complaintCount={unresolvedCount} />
+        <OpsTabs
+          active={activeTab}
+          onSelect={setActiveTab}
+          complaintCount={unresolvedCount}
+          messageUnreadCount={messageUnreadCount}
+        />
         <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
           <div className="max-w-6xl mx-auto p-4 md:p-6 space-y-6 pb-8">
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
@@ -651,6 +659,10 @@ export function OpsManagerPage() {
                   </div>
                 )}
               </div>
+            )}
+
+            {activeTab === 'messages' && (
+              <ManagerMessagesPanel active={activeTab === 'messages'} />
             )}
 
             {activeTab === 'complaints' && (

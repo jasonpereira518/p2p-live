@@ -11,6 +11,7 @@ export type OpsTabId =
   | 'driving'
   | 'timesheets'
   | 'schedule'
+  | 'messages'
   | 'complaints'
   | 'notes'
   | 'team';
@@ -19,6 +20,7 @@ interface OpsTabsProps {
   active: OpsTabId;
   onSelect: (tab: OpsTabId) => void;
   complaintCount?: number;
+  messageUnreadCount?: number;
 }
 
 const TABS: { id: OpsTabId; label: string }[] = [
@@ -28,12 +30,13 @@ const TABS: { id: OpsTabId; label: string }[] = [
   { id: 'driving', label: "Who's Driving" },
   { id: 'timesheets', label: 'Timesheets' },
   { id: 'schedule', label: 'Schedule' },
+  { id: 'messages', label: 'Messages' },
   { id: 'complaints', label: 'Complaints' },
   { id: 'notes', label: 'Driver Notes' },
   { id: 'team', label: 'Team' },
 ];
 
-export function OpsTabs({ active, onSelect, complaintCount = 0 }: OpsTabsProps) {
+export function OpsTabs({ active, onSelect, complaintCount = 0, messageUnreadCount = 0 }: OpsTabsProps) {
   return (
     <div className="border-b border-gray-200 bg-white shrink-0">
       <nav className="flex overflow-x-auto no-scrollbar gap-0" aria-label="Dashboard sections">
@@ -52,6 +55,11 @@ export function OpsTabs({ active, onSelect, complaintCount = 0 }: OpsTabsProps) 
             {tab.id === 'complaints' && complaintCount > 0 && (
               <span className="ml-1.5 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-p2p-red/20 text-p2p-red text-xs font-bold">
                 {complaintCount}
+              </span>
+            )}
+            {tab.id === 'messages' && messageUnreadCount > 0 && (
+              <span className="ml-1.5 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-p2p-red text-white text-xs font-bold">
+                {messageUnreadCount > 99 ? '99+' : messageUnreadCount}
               </span>
             )}
           </button>

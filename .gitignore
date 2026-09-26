@@ -24,3 +24,6 @@ dist-ssr
 *.sw?
 
 .env
+
+# SQLite messaging database (encrypted bodies but should not be committed)
+server/data/

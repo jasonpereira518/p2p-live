@@ -20,6 +20,7 @@ export function OpsLoginPage() {
   const [password, setPassword] = useState('');
   const [rolePreset, setRolePreset] = useState<'student' | 'admin' | 'manager' | 'driver'>('student');
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname;
@@ -31,15 +32,22 @@ export function OpsLoginPage() {
     setError('');
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const user = login({ username: username.trim(), password });
-    if (user) {
-      const to = from?.startsWith('/ops/') ? getDashboardPath(user.role) : (from || getDashboardPath(user.role));
-      navigate(to, { replace: true });
-    } else {
-      setError('Invalid credentials. Try a preset below or username/password.');
+    setSubmitting(true);
+    try {
+      const user = await login({ username: username.trim(), password });
+      if (user) {
+        const to = from?.startsWith('/ops/') ? getDashboardPath(user.role) : (from || getDashboardPath(user.role));
+        navigate(to, { replace: true });
+      } else {
+        setError('Invalid credentials. Try a preset below or username/password.');
+      }
+    } catch (err) {
+      setError('Could not sign you in. Please try again.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -100,9 +108,10 @@ export function OpsLoginPage() {
             )}
             <button
               type="submit"
-              className="w-full py-3 rounded-xl bg-p2p-blue text-white font-bold hover:bg-p2p-blue/90 focus:outline-none focus:ring-2 focus:ring-p2p-blue focus:ring-offset-2 active:scale-[0.98] transition-all"
+              disabled={submitting}
+              className="w-full py-3 rounded-xl bg-p2p-blue text-white font-bold hover:bg-p2p-blue/90 focus:outline-none focus:ring-2 focus:ring-p2p-blue focus:ring-offset-2 active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              Sign in
+              {submitting ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
           <p className="mt-6 text-center text-xs text-gray-400">

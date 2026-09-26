@@ -1,9 +1,12 @@
 /**
- * Ops auth module — fake auth for MVP.
- * TODO: Replace with real auth (e.g. /api/auth/login, JWT, refresh).
+ * Ops auth — backend-authoritative session.
+ * Frontend calls /api/auth/login to obtain a signed JWT; it is stored alongside the
+ * cached user payload so RoleGuard can render synchronously, but every privileged API
+ * call MUST send the bearer token. The JWT is the source of truth for the server.
  */
 
 import { listDrivers } from './peopleStore';
+import { apiFetch, setAuthToken, getAuthToken, ApiError } from '../utils/api';
 
 export type Role = 'student' | 'admin' | 'manager' | 'driver';
 
@@ -16,14 +19,19 @@ export interface OpsUser {
 
 export interface OpsSession {
   user: OpsUser;
-  expiresAt: number; // timestamp
+  expiresAt: number;
 }
 
 const SESSION_KEY = 'p2p-ops-session';
-const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
-// MVP: simple test logins. Names match opsRoster; TODO: replace with API call.
-const USERS: (OpsUser & { password: string })[] = [
+interface LoginResponse {
+  token: string;
+  expiresIn: number;
+  user: OpsUser;
+}
+
+const FALLBACK_USERS: (OpsUser & { password: string })[] = [
   { id: 'student-1', name: 'Alex Rivera', role: 'student', password: 'student', email: 'arivera@unc.edu' },
   { id: 'admin-1', name: 'Morgan Reeves', role: 'admin', password: 'admin', email: 'mreeves@p2plive.unc.edu' },
   { id: 'manager-1', name: 'James Chen', role: 'manager', password: 'manager', email: 'jchen@p2plive.unc.edu' },
@@ -41,6 +49,7 @@ function getStoredSession(): OpsSession | null {
     const session: OpsSession = JSON.parse(raw);
     if (session.expiresAt < Date.now()) {
       localStorage.removeItem(SESSION_KEY);
+      setAuthToken(null);
       return null;
     }
     return session;
@@ -57,49 +66,76 @@ function setStoredSession(session: OpsSession | null): void {
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
 }
 
-/**
- * Login with username (or role) and password.
- * MVP: fixed USERS for student/admin/manager + built-in drivers; any driver in peopleStore can log in with email + "driver".
- */
-export function login(credentials: { username: string; password: string }): OpsUser | null {
-  const u = credentials.username.trim().toLowerCase();
-  const p = credentials.password;
-  const found = USERS.find(
-    (x) => (x.role === u || x.id === u || x.name.toLowerCase().includes(u)) && x.password === p
+function localFallbackLogin(usernameRaw: string, password: string): OpsUser | null {
+  const u = usernameRaw.trim().toLowerCase();
+  const found = FALLBACK_USERS.find(
+    (x) =>
+      (x.role === u || x.id === u || (x.email || '').toLowerCase() === u || x.name.toLowerCase().includes(u)) &&
+      x.password === password
   );
-  if (found) {
-    const user: OpsUser = { id: found.id, name: found.name, role: found.role, email: found.email };
-    const session: OpsSession = { user, expiresAt: Date.now() + SESSION_TTL_MS };
-    setStoredSession(session);
-    return user;
+  if (found) return { id: found.id, name: found.name, role: found.role, email: found.email };
+  const driver = listDrivers().find((d) => d.email.toLowerCase() === u);
+  if (driver && password === 'driver') {
+    return { id: driver.id, name: driver.fullName, role: 'driver', email: driver.email };
   }
-  // Driver from peopleStore: login with email + password "driver"
-  const drivers = listDrivers();
-  const driver = drivers.find((d) => d.email.toLowerCase() === u);
-  if (driver && p === 'driver') {
-    const user: OpsUser = { id: driver.id, name: driver.fullName, role: 'driver', email: driver.email };
-    const session: OpsSession = { user, expiresAt: Date.now() + SESSION_TTL_MS };
+  return null;
+}
+
+/**
+ * Asynchronous login — first attempts the server `/api/auth/login` so the JWT can be issued.
+ * If the backend is unreachable (offline dev), we fall back to the same in-memory credentials
+ * so RoleGuard / the public app continue to work; messaging endpoints will simply be unavailable
+ * because no token will be present.
+ */
+export async function login(credentials: { username: string; password: string }): Promise<OpsUser | null> {
+  const username = credentials.username.trim();
+  const password = credentials.password;
+
+  try {
+    const data = await apiFetch<LoginResponse>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+    if (data && data.token && data.user) {
+      setAuthToken(data.token);
+      const session: OpsSession = {
+        user: data.user,
+        expiresAt: Date.now() + (data.expiresIn ? data.expiresIn * 1000 : SESSION_TTL_MS),
+      };
+      setStoredSession(session);
+      return data.user;
+    }
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) {
+      // Authoritative reject — do not fall back, server says invalid.
+      return null;
+    }
+    // Network or 5xx — fall through to local fallback so the demo can still run offline.
+  }
+
+  const fallback = localFallbackLogin(username, password);
+  if (fallback) {
+    setAuthToken(null);
+    const session: OpsSession = { user: fallback, expiresAt: Date.now() + SESSION_TTL_MS };
     setStoredSession(session);
-    return user;
+    return fallback;
   }
   return null;
 }
 
 export function logout(): void {
   setStoredSession(null);
+  setAuthToken(null);
 }
 
-/**
- * Returns current session or null if expired/missing.
- */
 export function getSession(): OpsSession | null {
   return getStoredSession();
 }
 
-/**
- * Get dashboard path for role (for post-login redirect).
- * Student goes to main app root.
- */
+export function getSessionToken(): string | null {
+  return getAuthToken();
+}
+
 export function getDashboardPath(role: Role): string {
   switch (role) {
     case 'student':
@@ -113,7 +149,6 @@ export function getDashboardPath(role: Role): string {
   }
 }
 
-/** True if role is an ops role (admin/manager/driver). */
 export function isOpsRole(role: Role): boolean {
   return role === 'admin' || role === 'manager' || role === 'driver';
 }

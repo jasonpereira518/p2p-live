@@ -10,6 +10,9 @@ if (process.env.NODE_ENV !== "production") {
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
+const messageRoutes = require('./messages/routes.cjs');
+const messageSocket = require('./messages/socket.cjs');
+const messageCrypto = require('./messages/crypto.cjs');
 
 const PORT = process.env.PORT || process.env.OPS_API_PORT || 3001;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -21,6 +24,9 @@ const WALK_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 let routeCache = Object.create(null);
 let walkCache = Object.create(null);
+
+// Populated after http server creation; used by REST handlers to push realtime events.
+let broadcastMessageEvent = null;
 
 // Lightweight in-process diagnostics counters (reset on server restart).
 let failedLlmCalls = 0;
@@ -455,11 +461,33 @@ const server = http.createServer((req, res) => {
   }
 
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     res.end();
+    return;
+  }
+
+  // Secure messaging + ops auth endpoints. Handler returns true if it handled the request.
+  if (
+    req.url &&
+    (req.url.startsWith('/api/auth') || req.url.startsWith('/api/messages'))
+  ) {
+    Promise.resolve(messageRoutes.tryHandle(req, res, broadcastMessageEvent))
+      .then((handled) => {
+        if (!handled && !res.writableEnded) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Not found' }));
+        }
+      })
+      .catch((err) => {
+        console.error('messages route error:', err && err.message);
+        if (!res.writableEnded) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Internal server error' }));
+        }
+      });
     return;
   }
   
@@ -628,12 +656,34 @@ const server = http.createServer((req, res) => {
   res.end();
 });
 
+// Attach Socket.IO realtime layer (messages + typing). Falls back to REST polling on the client.
+try {
+  const { broadcast } = messageSocket.attach(server, {
+    allowedOrigins: [
+      'http://localhost:3000',
+      'https://p2pnow.netlify.app',
+      /^https:\/\/.*--p2pnow\.netlify\.app$/,
+    ],
+  });
+  broadcastMessageEvent = broadcast;
+} catch (e) {
+  console.warn('Socket.IO attach failed:', e && e.message);
+}
+
 server.listen(PORT, "0.0.0.0", () => {
   if (!GEMINI_API_KEY) {
     console.warn('Warning: GEMINI_API_KEY not set. /api/ops/complaints/summary will return 500.');
   }
   if (!MAPBOX_TOKEN) {
     console.warn('Warning: MAPBOX_TOKEN not set. /api/mapbox/route will return 500.');
+  }
+  if (!process.env.JWT_SECRET) {
+    console.warn('Warning: JWT_SECRET not set. Using ephemeral dev secret; tokens reset on restart.');
+  }
+  if (!messageCrypto.isConfigured()) {
+    console.warn(
+      'Warning: MESSAGE_ENCRYPTION_KEY not set. Sending or persisting messages will fail until configured.'
+    );
   }
   console.log(`API server listening on port ${PORT}`);
 });

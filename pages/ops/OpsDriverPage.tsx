@@ -22,6 +22,7 @@ import { DriverLocationMap } from '../../components/ops/DriverLocationMap';
 import { Modal } from '../../components/ops/Modal';
 import { formatShiftDuration } from '../../utils/format';
 import { User } from 'lucide-react';
+import { DriverMessagesCard } from '../../components/ops/messages/DriverMessagesCard';
 
 const NOTE_DEBOUNCE_MS = 500;
 const NOTE_TAGS = ['GPS issue', 'Overcrowding', 'Detour', 'Maintenance', 'Other'];
@@ -246,6 +247,9 @@ export function OpsDriverPage() {
             </div>
           )}
         </section>
+
+        {/* Messages — manager / dispatch thread */}
+        {driverId && <DriverMessagesCard driverId={driverId} driverName={session?.user.name} />}
 
         {/* My Location map widget */}
         <section className="mb-6">
