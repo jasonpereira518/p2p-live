@@ -1,18 +1,14 @@
 /**
- * Root router: student app at /, ops at /ops/*.
- * TODO: Replace fake auth with real auth; keep route structure.
+ * Root router: student app at /. Ops dashboards at /ops/* only when built with
+ * VITE_ENABLE_OPS=true; otherwise they are left out of the build and /ops/* goes home.
  */
 
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import App from './App';
-import { OpsLoginPage } from './pages/ops/OpsLoginPage';
-import { OpsAdminPage } from './pages/ops/OpsAdminPage';
-import { OpsManagerPage } from './pages/ops/OpsManagerPage';
-import { OpsDriverPage } from './pages/ops/OpsDriverPage';
-import { RoleGuard } from './ops/RoleGuard';
-import { OpsErrorBoundary } from './ops/ErrorBoundary';
 import { TransitProvider } from './context/TransitProvider';
+
+const OpsRoutes = __OPS_ENABLED__ ? lazy(() => import('./ops/OpsRoutes')) : null;
 
 export function RouterApp() {
   return (
@@ -21,38 +17,9 @@ export function RouterApp() {
         <div className="h-full flex flex-col min-h-0">
         <Routes>
           <Route path="/" element={<App />} />
-          <Route path="/ops/login" element={<OpsLoginPage />} />
-          <Route
-            path="/ops/admin"
-            element={
-              <RoleGuard allowedRoles={['admin']}>
-                <OpsErrorBoundary pageName="Admin">
-                  <OpsAdminPage />
-                </OpsErrorBoundary>
-              </RoleGuard>
-            }
-          />
-          <Route
-            path="/ops/manager"
-            element={
-              <RoleGuard allowedRoles={['admin', 'manager']}>
-                <OpsErrorBoundary pageName="Manager">
-                  <OpsManagerPage />
-                </OpsErrorBoundary>
-              </RoleGuard>
-            }
-          />
-          <Route
-            path="/ops/driver"
-            element={
-              <RoleGuard allowedRoles={['driver']}>
-                <OpsErrorBoundary pageName="Driver">
-                  <OpsDriverPage />
-                </OpsErrorBoundary>
-              </RoleGuard>
-            }
-          />
-          <Route path="/ops" element={<Navigate to="/ops/login" replace />} />
+          {OpsRoutes && (
+            <Route path="/ops/*" element={<Suspense fallback={null}><OpsRoutes /></Suspense>} />
+          )}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         </div>

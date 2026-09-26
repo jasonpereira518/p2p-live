@@ -4,8 +4,8 @@ import mapboxgl, { type GeoJSONSource } from 'mapbox-gl';
 import type { Coordinate, Journey, LiveVehicle, RouteId, Stop } from '../types';
 import { ROUTE_COLORS, ROUTE_IDS } from '../data/routes';
 import { createRouteInterpolator, type LngLat } from '../utils/routeInterpolation';
-import { easeToward, extrapolateVehicle, type BusPosition } from '../utils/liveVehicleAnimation';
-import { boundedInsets, projectedOffsetPath, mergeMapStops, splitSharedCorridors, stopsWithinHitArea, type RouteArrow, type ViewportInsets } from '../utils/mapPresentation';
+import { reportAgeSec, reportedPosition, stepBus, type BusMotion } from '../utils/liveVehicleAnimation';
+import { boundedInsets, projectedOffsetPath, mergeMapStops, shiftedDashArray, splitSharedCorridors, stopsWithinHitArea, type RouteArrow, type ViewportInsets } from '../utils/mapPresentation';
 
 const empty = (): GeoJSON.FeatureCollection => ({ type: 'FeatureCollection', features: [] });
 const point = (coordinates: LngLat, properties: Record<string, unknown> = {}): GeoJSON.Feature<GeoJSON.Point> => ({ type: 'Feature', geometry: { type: 'Point', coordinates }, properties });
@@ -19,6 +19,15 @@ const BUS_IMAGES: Record<RouteId, string> = { P2P_EXPRESS: '/icons/bus-express-t
 const ARROW_SIZES: [number, number][] = [[14, .5], [15, .75], [16, 1], [17, 1.25], [18, 1.5]];
 /** [zoom, scale] stops for the bus images: smaller zoomed out, larger zoomed in. */
 const BUS_SCALES: [number, number][] = [[13, .625], [15, .9], [18, 1.45]];
+/** Flowing route lines: short white dashes (in line widths) that march toward each route's end. */
+const FLOW_DASH = 2, FLOW_GAP = 22, FLOW_STEP = .5, FLOW_FRAME_MS = 120;
+/** Flowing lines and the live-bus pulse only show when zoomed in close. */
+const DETAIL_ZOOM = 16;
+/** Longest frame the bus animation will step at once, e.g. after the tab was in the background. */
+const MAX_FRAME_SEC = .1;
+/** Recent snapshots used to estimate the client-minus-server clock offset. */
+const CLOCK_SAMPLES = 10;
+const FLOW_SEQUENCE = Array.from({ length: (FLOW_DASH + FLOW_GAP) / FLOW_STEP }, (_, i) => shiftedDashArray(FLOW_DASH, FLOW_GAP, i * FLOW_STEP));
 function busScale(zoom: number): number {
   const i = BUS_SCALES.findIndex(([z]) => z >= zoom);
   if (i <= 0) return BUS_SCALES[i === 0 ? 0 : BUS_SCALES.length - 1][1];
@@ -61,6 +70,8 @@ export interface MapCamera {
 export interface MapboxMapProps {
   vehicles: LiveVehicle[];
   vehiclesReceivedAt: number | null;
+  /** Server time the feed was read, for timing each bus from its own GPS report. */
+  vehiclesFetchedAt: string | null;
   routeLines: Record<RouteId, LngLat[]>;
   patternLines: Record<number, LngLat[]>;
   routeStops: Record<RouteId, Stop[]>;
@@ -84,7 +95,8 @@ export const MapboxMap = forwardRef<MapCamera, MapboxMapProps>(function MapboxMa
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const initialFramed = useRef(false);
-  const markers = useRef(new Map<string, { marker: mapboxgl.Marker; element: HTMLButtonElement; position: BusPosition }>());
+  const markers = useRef(new Map<string, { marker: mapboxgl.Marker; element: HTMLButtonElement; motion: BusMotion | null; drawn: BusMotion | null; label: string }>());
+  const clockOffsets = useRef<number[]>([]);
   const mapStops = useMemo(() => mergeMapStops(props.routeStops, props.enabledRouteIds), [props.routeStops, props.enabledRouteIds]);
   const chunks = useMemo(() => ({
     P2P_EXPRESS: props.routeLines.P2P_EXPRESS.length > 1 ? [{ coordinates: props.routeLines.P2P_EXPRESS, offset: 0 }] : [],
@@ -135,6 +147,7 @@ export const MapboxMap = forwardRef<MapCamera, MapboxMapProps>(function MapboxMa
       for (const id of ['routes', 'arrows', 'stops', 'user', 'journey', 'destination']) map.addSource(id, { type: 'geojson', data: empty() });
       map.addLayer({ id: 'routes-casing', type: 'line', source: 'routes', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#fff', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 6, 16, 8] } });
       map.addLayer({ id: 'routes-line', type: 'line', source: 'routes', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 4, 16, 6], 'line-opacity': .95 } });
+      map.addLayer({ id: 'routes-flow', type: 'line', source: 'routes', minzoom: DETAIL_ZOOM, layout: { 'line-join': 'round' }, paint: { 'line-color': '#fff', 'line-opacity': .55, 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 1.5, 16, 2.5], 'line-dasharray': FLOW_SEQUENCE[0] } });
       map.addLayer({ id: 'journey-casing', type: 'line', source: 'journey', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#fff', 'line-width': 8 } });
       map.addLayer({ id: 'journey-bus', type: 'line', source: 'journey', filter: ['==', ['get', 'kind'], 'bus'], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': 6 } });
       map.addLayer({ id: 'journey-walk', type: 'line', source: 'journey', filter: ['==', ['get', 'kind'], 'walk'], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#235e82', 'line-width': 3.5, 'line-dasharray': [0, 2] } });
@@ -160,7 +173,10 @@ export const MapboxMap = forwardRef<MapCamera, MapboxMapProps>(function MapboxMa
     };
     map.on('click', click);
     // Bus markers are HTML, so they read their size from this variable (see campus-map.css).
-    const scaleBuses = () => map.getContainer().style.setProperty('--bus-scale', busScale(map.getZoom()).toFixed(3));
+    const scaleBuses = () => {
+      map.getContainer().style.setProperty('--bus-scale', busScale(map.getZoom()).toFixed(3));
+      map.getContainer().classList.toggle('show-bus-pulse', map.getZoom() >= DETAIL_ZOOM);
+    };
     scaleBuses(); map.on('zoom', scaleBuses);
     const resize = new ResizeObserver(() => map.resize()); resize.observe(container.current);
     return () => {
@@ -216,7 +232,25 @@ export const MapboxMap = forwardRef<MapCamera, MapboxMapProps>(function MapboxMa
     }));
     set('destination', props.activeJourney ? [point([props.activeJourney.destination.lon, props.activeJourney.destination.lat], { name: props.activeJourney.destination.name })] : []);
     map.setPaintProperty('routes-line', 'line-opacity', props.activeJourney ? .4 : .95);
+    map.setPaintProperty('routes-flow', 'line-opacity', props.activeJourney ? 0 : .55);
   }, [ready, mapStops, props.highlightedStopId, props.userLocation, props.activeJourney]);
+
+  // March the flow dashes along the routes. Off for reduced motion.
+  useEffect(() => {
+    const map = mapRef.current; if (!map || !ready || !map.getLayer('routes-flow')) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { map.setLayoutProperty('routes-flow', 'visibility', 'none'); return; }
+    let frame = 0, step = 0, last = 0, stopped = false;
+    const animate = (time: number) => {
+      if (stopped) return;
+      if (time - last >= FLOW_FRAME_MS && map.getZoom() >= DETAIL_ZOOM) {
+        last = time; step = (step + 1) % FLOW_SEQUENCE.length;
+        map.setPaintProperty('routes-flow', 'line-dasharray', FLOW_SEQUENCE[step]);
+      }
+      frame = requestAnimationFrame(animate);
+    };
+    frame = requestAnimationFrame(animate);
+    return () => { stopped = true; cancelAnimationFrame(frame); };
+  }, [ready]);
 
   // Fixed to places on each route: set once per route change, never per camera move.
   useEffect(() => {
@@ -228,33 +262,60 @@ export const MapboxMap = forwardRef<MapCamera, MapboxMapProps>(function MapboxMa
   }, [ready, props.routeArrows, props.enabledRouteIds, props.activeJourney]);
 
   useEffect(() => {
+    // The server caches the feed, so a snapshot can arrive a few seconds after it was read;
+    // the smallest recent gap is the closest to the true clock difference.
+    const fetched = props.vehiclesFetchedAt ? Date.parse(props.vehiclesFetchedAt) : NaN;
+    if (props.vehiclesReceivedAt == null || !Number.isFinite(fetched)) return;
+    clockOffsets.current = [...clockOffsets.current, props.vehiclesReceivedAt - fetched].slice(-CLOCK_SAMPLES);
+  }, [props.vehiclesReceivedAt, props.vehiclesFetchedAt]);
+
+  useEffect(() => {
     const map = mapRef.current; if (!map || !ready || !map.getSource('routes')) return;
-    const tick = () => {
-      const p = latest.current, elapsed = p.vehiclesReceivedAt == null ? 0 : (Date.now() - p.vehiclesReceivedAt) / 1000;
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let frame = 0, last = performance.now();
+    const tick = (time: number) => {
+      frame = requestAnimationFrame(tick);
+      const dt = Math.min(Math.max(time - last, 0) / 1000, MAX_FRAME_SEC); last = time;
+      const p = latest.current, now = Date.now();
+      const offset = clockOffsets.current.length ? Math.min(...clockOffsets.current) : null;
       const visible = p.vehicles.filter(v => p.enabledRouteIds.includes(v.routeId));
       for (const [id, entry] of markers.current) if (!visible.some(v => v.id === id)) { entry.marker.remove(); markers.current.delete(id); }
       for (const v of visible) {
-        const target = extrapolateVehicle(v, interpolatorsRef.current.get(v.patternId) ?? null, elapsed);
         let entry = markers.current.get(v.id);
         if (!entry) {
           const element = document.createElement('button'); element.type = 'button'; element.className = 'campus-bus';
           // Top-down bus, front at the top of the image; lies flat and turns with its heading.
+          // Soft ring pulsing behind live buses; hidden while a bus is stale (see campus-map.css).
+          const pulse = document.createElement('span'); pulse.className = 'campus-bus-pulse'; element.appendChild(pulse);
+          element.style.setProperty('--bus-color', ROUTE_COLORS[v.routeId]);
           const image = document.createElement('img'); image.src = BUS_IMAGES[v.routeId]; image.alt = ''; element.appendChild(image);
           element.addEventListener('click', e => { e.stopPropagation(); const current = latest.current.vehicles.find(bus => bus.id === v.id); if (current) latest.current.onSelectBus(current); });
           const marker = new mapboxgl.Marker({ element, anchor: 'center', rotationAlignment: 'map', pitchAlignment: 'map' }).setLngLat([v.lon, v.lat]).addTo(map);
           element.setAttribute('role', 'button');
-          entry = { marker, element, position: target }; markers.current.set(v.id, entry);
+          entry = { marker, element, motion: null, drawn: null, label: '' }; markers.current.set(v.id, entry);
         }
-        const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-        const position = reduced ? { ...target, lon: v.lon, lat: v.lat, bearing: v.heading } : easeToward(entry.position, target, .3);
-        entry.position = position; entry.marker.setLngLat([position.lon, position.lat]);
-        entry.marker.setRotation(position.bearing);
-        entry.element.classList.toggle('stale', v.stale);
-        entry.element.setAttribute('aria-label', `${v.routeName}, ${v.name}${v.stale ? ', location not updating' : ''}`);
+        const motion = reducedMotion.matches ? reportedPosition(v)
+          : stepBus(entry.motion, v, interpolatorsRef.current.get(v.patternId ?? NaN) ?? null, reportAgeSec(v, now, offset, p.vehiclesReceivedAt), dt);
+        entry.motion = motion;
+        const drawn = entry.drawn;
+        const turned = !drawn || Math.abs(drawn.bearing - motion.bearing) >= .05;
+        if (turned || Math.abs(drawn.lon - motion.lon) > 1e-8 || Math.abs(drawn.lat - motion.lat) > 1e-8) {
+          // Mapbox snaps a marker to a whole pixel on setRotation but not on setLngLat, so rotate
+          // first; a bus moved every frame then slides smoothly instead of stepping pixel by pixel.
+          if (turned) entry.marker.setRotation(motion.bearing);
+          entry.marker.setLngLat([motion.lon, motion.lat]);
+          entry.drawn = motion;
+        }
+        const label = `${v.routeName}, ${v.name}${v.stale ? ', location not updating' : ''}`;
+        if (label !== entry.label) {
+          entry.label = label;
+          entry.element.setAttribute('aria-label', label);
+          entry.element.classList.toggle('stale', v.stale);
+        }
       }
     };
-    tick(); const timer = setInterval(tick, 300);
-    return () => clearInterval(timer);
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
   }, [ready]);
 
   useEffect(() => {

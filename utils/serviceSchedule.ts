@@ -111,3 +111,11 @@ export function getUpcomingRouteArrivals(
 export function getServiceResumeLabel(): string {
   return '7:00 PM';
 }
+
+/** When evening service next begins, today or tomorrow. */
+export function nextServiceStart(now: Date = new Date()): Date {
+  const start = new Date(now);
+  start.setHours(Math.floor(START_MINUTE / 60), START_MINUTE % 60, 0, 0);
+  if (start.getTime() <= now.getTime()) start.setDate(start.getDate() + 1);
+  return start;
+}

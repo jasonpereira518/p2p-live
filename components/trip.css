@@ -13,12 +13,11 @@
 .passenger-app .trip-view .trip-row.is-active,.passenger-app .trip-view button.trip-row:hover{background:#f4f8fa}
 .passenger-app .trip-view .trip-empty{padding:8px 0;font-size:14px;color:#5a6d79}
 
-.passenger-app .trip-view.trip-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:60vh;text-align:center}
-.passenger-app .trip-view .trip-spinner{width:44px;height:44px;margin-bottom:10px;border:4px solid #d6e1e8;border-top-color:#2f73a0;border-radius:50%;animation:trip-spin 1s linear infinite}
-.passenger-app .trip-view .trip-loading-title{font-size:17px;font-weight:650}
-.passenger-app .trip-view .trip-loading-note{font-size:14px;color:#51616e}
+.passenger-app .trip-view.trip-loading{display:grid;gap:12px;padding-top:20px}
+.passenger-app .trip-view .trip-loading-title{font-size:15px;font-weight:600;color:#51616e}
+.passenger-app .trip-view .trip-skel-options{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 
-.passenger-app .trip-view.trip-results{padding-top:12px}
+.passenger-app .trip-view.trip-results{padding-top:0}
 .passenger-app .trip-view .trip-back{display:inline-flex;align-items:center;gap:6px;min-height:44px;margin-left:-4px;padding:0 4px;color:#265576;font-size:15px;font-weight:600}
 .passenger-app .trip-view .trip-back svg{width:18px;height:18px}
 .passenger-app .trip-view .trip-dest{margin-top:4px;font-size:24px;line-height:1.2;font-weight:720;letter-spacing:-.6px;color:#152735;overflow-wrap:anywhere}
@@ -26,7 +25,7 @@
 .passenger-app .trip-view .trip-sub{margin-top:3px;font-size:14px;color:#51616e}
 
 .passenger-app .trip-view .trip-options{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0 10px}
-.passenger-app .trip-view .trip-option{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-height:44px;padding:12px;border:1.5px solid #d6e1e8;border-radius:14px;background:#fff;color:#152735;text-align:left}
+.passenger-app .trip-view .trip-option{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-height:44px;padding:12px 12px 20px;border:1.5px solid #d6e1e8;border-radius:14px;background:#fff;color:#152735;text-align:left}
 .passenger-app .trip-view .trip-option[aria-pressed=true][data-mode=walk]{border-color:#4a5b66;background:#f1f4f6}
 .passenger-app .trip-view .trip-option[aria-pressed=true][data-mode=bus]{border-color:var(--trip-route);background:var(--trip-tint)}
 .passenger-app .trip-view .trip-option:disabled{opacity:.65;cursor:not-allowed}
@@ -39,10 +38,10 @@
 .passenger-app .trip-view .trip-option-route{font-size:13px;font-weight:650;color:var(--trip-route)}
 .passenger-app .trip-view .trip-compare{margin-bottom:16px;padding:10px 12px;border:1px solid #e0e7eb;border-radius:12px;background:#fff;font-size:14px;line-height:1.45;color:#3c5362}
 
-.passenger-app .trip-view .trip-hero{padding:18px;border:1px solid var(--trip-tint-border);border-radius:18px;background:var(--trip-tint)}
+.passenger-app .trip-view .trip-hero{padding:14px;border:1px solid var(--trip-tint-border);border-radius:18px;background:var(--trip-tint)}
 .passenger-app .trip-view .trip-hero[data-mode=walk]{border-color:#d6dfe5;background:#f1f4f6}
 .passenger-app .trip-view .trip-route-pill{display:inline-flex;align-items:center;min-height:30px;padding:5px 11px;border-radius:8px;background:var(--trip-route);color:#fff;font-size:15px;font-weight:700}
-.passenger-app .trip-view .trip-go{display:flex;align-items:flex-end;flex-wrap:wrap;gap:6px 14px;margin:16px 0}
+.passenger-app .trip-view .trip-go{display:flex;align-items:flex-end;flex-wrap:wrap;gap:6px 14px;margin:10px 0}
 .passenger-app .trip-view .trip-hero[data-mode=walk] .trip-go{margin-top:0}
 .passenger-app .trip-view .trip-go p{display:flex;align-items:baseline;gap:6px;line-height:1;white-space:nowrap;color:#101d27}
 .passenger-app .trip-view .trip-go p>span{font-size:20px;font-weight:600}
@@ -51,12 +50,12 @@
 .passenger-app .trip-view .trip-tag svg{width:14px;height:14px}
 .passenger-app .trip-view .trip-label{font-size:14px;color:#4c6676}
 .passenger-app .trip-view .trip-hero h3{margin-top:2px;font-size:22px;line-height:1.2;font-weight:720;letter-spacing:-.4px;color:#14394f;overflow-wrap:anywhere}
-.passenger-app .trip-view .trip-hero-note{margin-top:8px;font-size:15px;color:#314e61}
+.passenger-app .trip-view .trip-hero-note{margin-top:6px;font-size:15px;color:#314e61}
 .passenger-app .trip-view .trip-missed{display:flex;align-items:flex-start;gap:8px;margin:14px 0;padding:10px;border-radius:10px;background:#fff8ee;color:#8b4e16;font-size:14px}
 .passenger-app .trip-view .trip-missed svg{width:18px;height:18px;flex-shrink:0}
 
 .passenger-app .trip-view .trip-steps{margin:16px 0 0;padding:0;list-style:none}
-.passenger-app .trip-view .trip-steps>li{display:grid;grid-template-columns:72px minmax(0,1fr);gap:10px;padding:12px 0;border-bottom:1px solid #dde5e9}
+.passenger-app .trip-view .trip-steps>li{display:grid;grid-template-columns:68px 16px minmax(0,1fr);gap:8px;padding:10px 0;animation:trip-row .4s ease-out both;animation-delay:calc(var(--i,0) * 90ms)}
 .passenger-app .trip-view .trip-steps>li>time{font-size:14px;font-weight:650;font-variant-numeric:tabular-nums}
 .passenger-app .trip-view .trip-steps>li>div{display:flex;flex-direction:column;gap:3px;min-width:0}
 .passenger-app .trip-view .trip-steps>li>div>strong{font-size:15px;font-weight:650;overflow-wrap:anywhere}
@@ -67,11 +66,29 @@
 .passenger-app .trip-view .trip-more ol{display:flex;flex-direction:column;gap:4px;margin:0;padding-left:18px;list-style:decimal}
 .passenger-app .trip-view .trip-more li span{color:#6a7c87}
 
-.passenger-app .trip-view .trip-start{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:48px;margin-top:18px;padding:12px 14px;border-radius:10px;background:var(--trip-action,#3f5260);color:#fff;font-size:16px;font-weight:650;text-align:left}
+.passenger-app .trip-view .trip-actions{display:flex;gap:8px;margin-top:12px}
+.passenger-app .trip-view .trip-start{display:flex;flex:1;min-width:0;align-items:center;justify-content:space-between;gap:10px;min-height:48px;padding:12px 14px;border-radius:10px;background:var(--trip-action,#3f5260);color:#fff;font-size:16px;font-weight:650;text-align:left}
 .passenger-app .trip-view .trip-start:hover{filter:brightness(.93)}
-.passenger-app .trip-view .trip-refresh{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;min-height:46px;margin-top:10px;border:1px solid #c6d6e1;border-radius:10px;background:#f0f5f8;color:#265576;font-size:15px;font-weight:600}
+.passenger-app .trip-view .trip-refresh{display:flex;flex-shrink:0;align-items:center;justify-content:center;gap:6px;min-height:48px;padding:0 14px;border:1px solid #c6d6e1;border-radius:10px;background:#f0f5f8;color:#265576;font-size:15px;font-weight:600}
 .passenger-app .trip-view .trip-refresh:disabled{opacity:.6}
 .passenger-app .trip-view .trip-spinning{animation:trip-spin 1s linear infinite}
 @keyframes trip-spin{to{transform:rotate(360deg)}}
 @media(max-width:360px){.passenger-app .trip-view .trip-options{gap:8px}.passenger-app .trip-view .trip-option{padding:10px}.passenger-app .trip-view .trip-steps>li{grid-template-columns:64px minmax(0,1fr)}}
-@media(prefers-reduced-motion:reduce){.passenger-app .trip-view .trip-spinner,.passenger-app .trip-view .trip-spinning{animation:none}}
+@media(prefers-reduced-motion:reduce){.passenger-app .trip-view .trip-spinning{animation:none}}
+/* Walk vs bus race: bars run at one speed, so the faster trip finishes first and gets the badge. */
+.passenger-app .trip-view .trip-race{position:absolute;left:12px;right:12px;bottom:9px;height:4px;overflow:hidden;border-radius:2px;background:#e8eef1}
+.passenger-app .trip-view .trip-race i{display:block;width:var(--race-w);height:100%;border-radius:2px;background:#4a5b66;transform-origin:left;animation:trip-race var(--race-t) cubic-bezier(.3,0,.45,1) both}
+.passenger-app .trip-view .trip-option[data-mode=bus] .trip-race i{background:var(--trip-route)}
+.passenger-app .trip-view .trip-badge{animation:trip-badge .35s cubic-bezier(.3,1.6,.5,1) both}
+@keyframes trip-race{from{transform:scaleX(0)}}@keyframes trip-badge{from{transform:scale(0)}}
+/* Timeline draws in step by step: dotted rail for walking, solid route color for riding. */
+.passenger-app .trip-view .trip-rail{position:relative;align-self:stretch;margin:-10px 0}
+.passenger-app .trip-view .trip-rail::before{content:'';position:absolute;left:50%;top:22px;bottom:-13px;margin-left:-1.5px;border-left:3px dotted #8a9aa5;transform-origin:top;animation:trip-rail .45s ease-out both;animation-delay:calc(var(--i,0) * 90ms + 150ms)}
+.passenger-app .trip-view li[data-leg=bus] .trip-rail::before{border-left-style:solid;border-left-color:var(--trip-route,#2f73a0)}
+.passenger-app .trip-view li[data-leg=end] .trip-rail::before{display:none}
+.passenger-app .trip-view .trip-rail::after{content:'';position:absolute;left:50%;top:13px;width:11px;height:11px;margin-left:-5.5px;box-sizing:border-box;border:2.5px solid #4a5b66;border-radius:50%;background:#fff}
+.passenger-app .trip-view li[data-leg=bus] .trip-rail::after{border-color:var(--trip-route,#2f73a0)}
+.passenger-app .trip-view li[data-leg=end] .trip-rail::after{border-color:#152735;background:#152735}
+@keyframes trip-row{from{opacity:0;transform:translateY(6px)}}@keyframes trip-rail{from{transform:scaleY(0)}}
+.passenger-app .trip-view .trip-after{display:flex;align-items:flex-start;gap:6px;margin-top:6px;font-size:14px;line-height:1.4;color:#3c5362}
+.passenger-app .trip-view .trip-after svg{width:16px;height:16px;margin-top:2px;flex-shrink:0}

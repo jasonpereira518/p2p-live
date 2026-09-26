@@ -47,7 +47,6 @@
 .passenger-app .campus-sheet svg { stroke-width: 1.5; }
 .passenger-app .campus-map { --campus-ink: var(--rider-ink); --campus-muted: var(--rider-muted); --campus-border: var(--rider-border); font-family: var(--rider-font); }
 .passenger-app .campus-chip { gap: 5px; padding: 8px; font-weight: 500; border-radius: var(--rider-radius); }
-.passenger-app .campus-count { color: var(--rider-muted); }
 .passenger-app .campus-control, .passenger-app .campus-options { border-radius: var(--rider-radius); box-shadow: var(--rider-shadow); }
 .passenger-app .campus-options button { font-size: 14px; }
 .passenger-app .campus-sheet { padding: var(--rider-space); border-radius: 16px; box-shadow: var(--rider-shadow); }

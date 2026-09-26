@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { boundedInsets, projectedOffsetPath, safelyUnproject, continuousOffsetPath, distanceToLineMeters, eligibleCampusLocation, mergeMapStops, nearbyMapStop, routeArrows, splitSharedCorridors, stopsWithinHitArea } from '../../utils/mapPresentation';
+import { boundedInsets, projectedOffsetPath, safelyUnproject, continuousOffsetPath, distanceToLineMeters, eligibleCampusLocation, mergeMapStops, nearbyMapStop, routeArrows, shiftedDashArray, splitSharedCorridors, stopsWithinHitArea } from '../../utils/mapPresentation';
 import { LINE, makeNetwork } from '../fixtures/transit';
 import { haversineMeters } from '../../utils/routeInterpolation';
 import { getRouteStops } from '../../utils/transitSelectors';
@@ -179,5 +179,15 @@ describe('camera projection safety', () => {
     const result = projectedOffsetPath(chunks, project, () => { throw new Error('horizon'); })
       ?? projectedOffsetPath(chunks, project, p => [p.x, p.y]);
     expect(result).toEqual([[0, 7], [100, 7]]);
+  });
+});
+
+describe('flowing route dashes', () => {
+  it('shifts one dash forward along the line without changing the pattern length', () => {
+    expect(shiftedDashArray(1, 6, 0)).toEqual([0, 0, 1, 6]);
+    expect(shiftedDashArray(1, 6, 3)).toEqual([0, 3, 1, 3]);
+    expect(shiftedDashArray(1, 6, 6.5)).toEqual([0.5, 6, 0.5, 0]);
+    expect(shiftedDashArray(1, 6, 7)).toEqual([0, 0, 1, 6]);
+    for (let s = 0; s < 7; s += .5) expect(shiftedDashArray(1, 6, s).reduce((a, b) => a + b)).toBeCloseTo(7);
   });
 });

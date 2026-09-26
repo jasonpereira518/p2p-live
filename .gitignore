@@ -25,3 +25,6 @@ dist-ssr
 
 .env
 .superpowers/
+
+# Local screenshots and verification output
+/artifacts/

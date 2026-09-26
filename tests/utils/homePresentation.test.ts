@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { homeDeparture, homeEta, homeServiceSummary, nearestHomeStop } from '../../utils/homePresentation';
+import { homeDeparture, homeEta, homeServiceSummary, homeUrgency, nearestHomeStop, serviceCountdown } from '../../utils/homePresentation';
 import type { Stop, StopArrival } from '../../types';
 
 const afternoon = new Date(2026, 8, 20, 14);
@@ -59,5 +59,16 @@ describe('Home location eligibility', () => {
     expect(nearestHomeStop({lat:40.7,lon:-74},true,stops)).toBeNull();
     expect(nearestHomeStop(null,true,stops)).toBeNull();
     expect(nearestHomeStop(location,true,[])).toBeNull();
+  });
+});
+
+describe('Home motion states', () => {
+  it('warms up as leave time approaches', () => {
+    expect([6, 5, 4, 2, 1, 0].map(homeUrgency)).toEqual(['calm', 'calm', 'soon', 'soon', 'now', 'now']);
+  });
+  it('counts down to 7 PM service', () => {
+    expect(serviceCountdown(new Date(2026, 8, 20, 16, 46))).toBe('2h 14m');
+    expect(serviceCountdown(new Date(2026, 8, 20, 18, 25, 30))).toBe('35 min');
+    expect(serviceCountdown(new Date(2026, 8, 20, 4, 0))).toBe('15h 0m');
   });
 });

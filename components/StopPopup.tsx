@@ -2,7 +2,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Footprints, MapPin, X } from 'lucide-react';
 import type { Coordinate, Journey, Stop } from '../types';
-import { useStopArrivals, useTransit } from '../context/TransitProvider';
+import { useTransit } from '../context/TransitProvider';
+import { nextArrivalsByRoute } from '../utils/arrivals';
 import { ROUTE_COLORS, ROUTE_NAMES } from '../data/routes';
 import { getRoutesServingStop } from '../utils/transitSelectors';
 import { getWalkDirections } from '../utils/multimodalRouting';
@@ -20,19 +21,20 @@ interface StopPopupProps {
 }
 export function StopPopup({ stop, userLocation, nearby = false, onClose, onWalkToStop }: StopPopupProps) {
   const { network, snapshot, status } = useTransit();
-  const arrivals = useStopArrivals(stop.id, 12);
+  // Up to two per route (the next pass is estimated when the live feed has one), soonest first;
+  // the next two show up front and the rest behind "View more times".
+  const arrivals = useMemo(() => nextArrivalsByRoute({ stopId: stop.id, network, snapshot, status, now: new Date() }).sort((a, b) => a.etaSec - b.etaSec), [stop.id, network, snapshot, status]);
+  const [moreTimes, setMoreTimes] = useState(false);
   const routes = getRoutesServingStop(network, snapshot, stop.id);
-  const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const request = useRef(0);
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
-    setExpanded(false); setError(null); setLoading(false);
+    setError(null); setLoading(false); setMoreTimes(false);
     if (!nearby) heading.current?.focus({ preventScroll: true });
     return () => { request.current++; };
   }, [stop.id, nearby]);
-  const visible = useMemo(() => expanded ? arrivals : arrivals.filter((a, i) => arrivals.findIndex(b => b.routeId === a.routeId) === i), [arrivals, expanded]);
   const messages = getStopMessages(snapshot?.messages ?? [], stop.id);
   const walkMin = userLocation ? getWalkTimeMinutes(getDistanceMeters(userLocation, stop)) : null;
   const walk = async () => {
@@ -62,14 +64,16 @@ export function StopPopup({ stop, userLocation, nearby = false, onClose, onWalkT
       <button type="button" className="campus-close" onClick={onClose} aria-label="Close stop details"><X size={17} /></button>
     </div>
     <div aria-live="polite">
-      {visible.map((a, i) => <div className="campus-arrival" key={`${a.routeId}-${a.vehicleId}-${i}`}>
+      {arrivals.slice(0, moreTimes ? undefined : 2).map((a, i) => <div className="campus-arrival" key={`${a.routeId}-${a.vehicleId}-${i}`}>
         <span className="campus-route-tag" style={{ background: ROUTE_COLORS[a.routeId] }}>{a.routeId === 'P2P_EXPRESS' ? 'EX' : 'BH'}</span>
         <span>{a.routeName}{(a.source === 'scheduled' || status === 'degraded') && <span className="block text-[10px] text-slate-500">{a.source === 'scheduled' ? 'Scheduled' : 'Delayed'}</span>}</span>
         <span className="campus-arrival-time">{formatEta(a.etaSec)}</span>
       </div>)}
       {arrivals.length === 0 && <><p className="campus-hint">{emptyMessage}</p><p className="campus-hint">{routes.map(id => ROUTE_NAMES[id]).join(' · ')}</p></>}
     </div>
-    {arrivals.length > new Set(arrivals.map(a => a.routeId)).size && <button type="button" className="campus-text-button inline-flex items-center gap-1" aria-expanded={expanded} onClick={() => setExpanded(v => !v)}>{expanded ? 'Fewer arrivals' : 'All arrivals'}{expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>}
+    {arrivals.length > 2 && <button type="button" className="campus-more" aria-expanded={moreTimes} onClick={() => setMoreTimes(v => !v)}>
+      {moreTimes ? 'Show fewer times' : 'View more times'}{moreTimes ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
+    </button>}
     {messages.map(m => <div className="campus-alert" key={m.id}><strong>{m.title}</strong>{m.body && <p>{m.body}</p>}</div>)}
     <button type="button" className="campus-primary" disabled={!userLocation || loading} onClick={walk}><Footprints size={16} aria-hidden="true" />{loading ? 'Finding walking route…' : 'Walk here'}</button>
     {!userLocation && <p className="campus-hint">Allow location access while on campus to get walking directions.</p>}

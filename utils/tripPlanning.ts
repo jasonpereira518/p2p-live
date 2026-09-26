@@ -2,8 +2,7 @@
  * Bus-leg math for Plan Trip.
  */
 
-import type { Journey, JourneySegment, LiveVehicle, RouteId } from '../types';
-import { formatDistanceImperial } from './format';
+import type { Journey, JourneySegment, LiveVehicle, RouteId, WalkingStep } from '../types';
 import { getServiceResumeLabel } from './serviceSchedule';
 
 export const BUS_SPEED_MPS = 6;
@@ -94,22 +93,11 @@ const segmentSec = (s: JourneySegment) => s.durationSec ?? s.durationMin * 60;
 export const journeySec = (j: Journey) => (j.arrivalTime.getTime() - j.startTime.getTime()) / 1000;
 export const walkingMeters = (j: Journey) => j.segments.filter(s => s.type === 'walk').reduce((m, s) => m + s.distanceMeters, 0);
 
-/** One-line difference between walking and taking the bus. */
-export function tripComparison({ walk, bus, busUnavailable }: TripOptions): string {
-  if (!bus) {
-    if (busUnavailable === 'not-running') return `Buses aren't running right now. Service starts at ${getServiceResumeLabel()}.`;
-    if (busUnavailable === 'no-stops') return 'No bus stops are within a 15-minute walk of your start or destination.';
-    return 'No bus trip fits this route right now.';
-  }
-  if (!walk) return 'Walking directions are unavailable for this trip.';
-  const diffMin = Math.round((journeySec(walk) - journeySec(bus)) / 60);
-  const walkMi = formatDistanceImperial(walkingMeters(walk)), busMi = formatDistanceImperial(walkingMeters(bus));
-  const cut = walkingMeters(bus) < walkingMeters(walk) - 50 ? `cuts your walk from ${walkMi} to ${busMi}` : '';
-  // Near the destination, getting to and from the stops can be longer than the walk itself.
-  const more = walkingMeters(bus) > walkingMeters(walk) + 50 ? ` The bus trip has more walking (${busMi} vs ${walkMi}).` : '';
-  if (diffMin === 0) return `Both take about the same time.${cut ? ` The bus ${cut}.` : more}`;
-  if (diffMin < 0) return `Walking is ${-diffMin} min faster.${cut ? ` The bus ${cut}.` : more}`;
-  return `The bus is ${diffMin} min faster${cut ? ` and ${cut}.` : `.${more}`}`;
+/** Why there's no bus option, shown under the greyed-out Bus card. */
+export function busUnavailableMessage(reason: BusUnavailableReason | null): string {
+  if (reason === 'not-running') return `Buses aren't running right now. Service starts at ${getServiceResumeLabel()}.`;
+  if (reason === 'no-stops') return 'No bus stops are within a 15-minute walk of your start or destination.';
+  return 'No bus trip fits this route right now.';
 }
 
 export interface BusTripTimes {
@@ -148,4 +136,31 @@ export function busTripTimes(journey: Journey, now = new Date()): BusTripTimes |
     walkToStopSec, waitAtStopSec: waitSec - leaveSec, rideSec, finalWalkSec,
     missed: boardAt.getTime() <= now.getTime(),
   };
+}
+
+/** Paths without a street name: turns onto these are folded into the step before. */
+const UNNAMED_WAY = /\b(walkway|crosswalk|sidewalk|footway|path|pedestrian|steps|stairs)\b/i;
+/** An unnamed stretch this long is worth its own step. */
+const LONG_STRETCH_M = 150;
+const streetName = (instruction: string) => {
+  const name = /\b(?:onto|on|along)\s+(?:the\s+)?(.+?)\.?$/i.exec(instruction)?.[1];
+  return name && !UNNAMED_WAY.test(name) ? name.toLowerCase() : null;
+};
+
+/**
+ * Just the main walking directions: the first step, turns onto named streets and long
+ * stretches. Walkway/crosswalk turns, "Continue" and staying on the same street fold into
+ * the step before (distance added); zero-length arrival steps are dropped.
+ */
+export function mainWalkingSteps(steps: WalkingStep[] = []): WalkingStep[] {
+  const out: WalkingStep[] = [];
+  for (const step of steps) {
+    if (step.distanceMeters < 8) continue;
+    const prev = out[out.length - 1];
+    const street = streetName(step.instruction);
+    const keep = !prev || step.distanceMeters >= LONG_STRETCH_M || (street != null && street !== streetName(prev.instruction));
+    if (keep) out.push({ ...step });
+    else { prev.distanceMeters += step.distanceMeters; prev.durationSec += step.durationSec; }
+  }
+  return out;
 }

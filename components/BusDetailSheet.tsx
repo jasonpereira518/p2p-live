@@ -1,11 +1,15 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Coordinate, LiveVehicle, Stop } from '../types';
-import { X, Navigation } from 'lucide-react';
+import { X, Navigation, ChevronDown, ChevronUp } from 'lucide-react';
 import { getDistanceMeters, getWalkTimeMinutes } from '../utils/geo';
 import { formatEta } from '../utils/format';
 import { getLoadInfo } from '../utils/vehicleDisplay';
 import { getPattern } from '../utils/transitSelectors';
 import { useTransit } from '../context/TransitProvider';
+
+/** Stops listed up front, and how many more "View next stops" reveals. */
+const FIRST_STOPS = 5;
+const MORE_STOPS = 10;
 
 function getFullnessMeta(percent: number): { label: string; textClass: string; barClass: string } {
   if (percent <= 30) return { label: 'Low', textClass: 'text-emerald-600', barClass: 'bg-emerald-500' };
@@ -37,6 +41,8 @@ export const BusDetailSheet: React.FC<BusDetailSheetProps> = ({ vehicle, stops, 
     [nextStop, userLocation]
   );
 
+  const [showMore, setShowMore] = useState(false);
+  useEffect(() => setShowMore(false), [vehicle.id]);
   const loadInfo = getLoadInfo(vehicle);
   const fullnessMeta = loadInfo ? getFullnessMeta(loadInfo.percent) : null;
 
@@ -181,7 +187,7 @@ export const BusDetailSheet: React.FC<BusDetailSheetProps> = ({ vehicle, stops, 
               <p className="text-sm text-gray-500">No upcoming stop predictions for this bus.</p>
             ) : (
               <div className="relative pl-2 space-y-6 before:content-[''] before:absolute before:left-[19px] before:top-2 before:bottom-4 before:w-0.5 before:bg-gray-200">
-                {upcoming.map((stop, idx) => (
+                {upcoming.slice(0, showMore ? FIRST_STOPS + MORE_STOPS : FIRST_STOPS).map((stop, idx) => (
                   <div key={`${stop.stopId}-${idx}`} className="relative flex items-center justify-between pl-8 group">
                     <div
                       className={`absolute left-3 w-4 h-4 rounded-full border-2 border-white shadow-sm z-10 ${
@@ -206,6 +212,17 @@ export const BusDetailSheet: React.FC<BusDetailSheetProps> = ({ vehicle, stops, 
                   </div>
                 ))}
               </div>
+            )}
+            {upcoming.length > FIRST_STOPS && (
+              <button
+                type="button"
+                onClick={() => setShowMore((v) => !v)}
+                aria-expanded={showMore}
+                className="bus-detail-more mt-5 w-full min-h-[44px] flex items-center justify-between px-3 rounded-xl border border-gray-200 bg-gray-50 text-sm font-semibold text-gray-700 hover:bg-gray-100"
+              >
+                {showMore ? 'Hide next stops' : 'View next stops'}
+                {showMore ? <ChevronUp size={18} aria-hidden="true" /> : <ChevronDown size={18} aria-hidden="true" />}
+              </button>
             )}
           </div>
         </div>

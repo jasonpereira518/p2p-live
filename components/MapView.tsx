@@ -9,6 +9,7 @@ import { getActivePattern, getRouteStops } from '../utils/transitSelectors';
 import { getLiveStatusMessage } from '../utils/liveStatus';
 import { eligibleCampusLocation, mergeMapStops, nearbyMapStop, routeArrows } from '../utils/mapPresentation';
 import { ROUTE_IDS, ROUTE_NAMES } from '../data/routes';
+import { mainWalkingSteps } from '../utils/tripPlanning';
 import './campus-map.css';
 
 const ROUTES_PDF = 'https://move.unc.edu/wp-content/uploads/sites/248/2022/08/unc-point-to-point-map.pdf';
@@ -94,7 +95,7 @@ export const MapView: React.FC<MapViewProps> = ({ vehicles, userLocation, userLo
     else if (activeJourney) { onClearJourney(); camera.current?.focus(); }
     else if (hasSheet) closePanel();
   }}>
-    <MapboxMap ref={camera} vehicles={vehicles} vehiclesReceivedAt={snapshotReceivedAt} routeLines={routeLines} patternLines={patternLines} routeStops={routeStops} routeArrows={arrows} enabledRouteIds={enabled} userLocation={location}
+    <MapboxMap ref={camera} vehicles={vehicles} vehiclesReceivedAt={snapshotReceivedAt} vehiclesFetchedAt={snapshot?.fetchedAt ?? null} routeLines={routeLines} patternLines={patternLines} routeStops={routeStops} routeArrows={arrows} enabledRouteIds={enabled} userLocation={location}
       highlightedStopId={!busDetailsOpen && !picker && !listOpen && !activeJourney ? selectedStop?.id ?? null : null} focusStopId={selectedStop?.id ?? null} viewportInsets={insets} activeJourney={activeJourney}
       onSelectBus={bus => { setPicker(null); setListOpen(false); onDismissStop(); onSelectBus(bus); }} onStopCandidates={choose} onMapClick={() => { if (selectedStop || picker || listOpen) closePanel(); }} enable3D={enable3D} centerOnCampusAt={centerOnCampusAt} />
     <div className="campus-toolbar" ref={toolbar} style={{ top: topInset + 12 }}>
@@ -132,7 +133,7 @@ export const MapView: React.FC<MapViewProps> = ({ vehicles, userLocation, userLo
       </section> : activeJourney ? <section className="campus-sheet" aria-label="Active journey">
         <div className="campus-sheet-heading"><div><p className="campus-eyebrow"><Footprints size={13} />{activeJourney.segments.some(s => s.type === 'bus') ? 'Your journey' : 'Walking directions'}</p><h2 ref={journeyHeading} tabIndex={-1}>{activeJourney.destination.name}</h2></div><button type="button" className="campus-close" aria-label="End journey" onClick={() => { onClearJourney(); camera.current?.focus(); }}><X size={17} /></button></div>
         <p className="campus-hint">{activeJourney.totalDurationMin} min{activeJourney.segments.filter(s => s.type === 'bus').map(s => ` · ${s.routeName}`).join('')}</p>
-        {activeJourney.segments.flatMap(s => s.steps ?? []).length > 0 && <details className="mt-3 text-xs"><summary className="cursor-pointer py-2">Walking steps</summary><ol className="list-decimal pl-4 space-y-2 mt-2">{activeJourney.segments.flatMap(s => s.steps ?? []).map((step, i) => <li key={i}>{step.instruction}</li>)}</ol></details>}
+        {activeJourney.segments.some(s => s.steps?.length) && <details className="mt-3 text-xs"><summary className="cursor-pointer py-2">Walking steps</summary><ol className="list-decimal pl-4 space-y-2 mt-2">{activeJourney.segments.flatMap(s => mainWalkingSteps(s.steps)).map((step, i) => <li key={i}>{step.instruction}</li>)}</ol></details>}
       </section> : shownStop && <StopPopup stop={shownStop} userLocation={location} nearby={!selectedStop} onClose={closePanel} onWalkToStop={startWalk} />}
     </div>}
   </div>;

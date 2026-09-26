@@ -216,3 +216,10 @@ export function continuousOffsetPath(chunks: ScreenRouteChunk[], transitionPixel
   if (closed) result[result.length - 1] = { ...result[0] };
   return result;
 }
+
+/** A [dash, gap] line pattern shifted forward along the line by `shift`, in line-width
+ * units. Stepping `shift` from 0 to dash + gap makes the dashes march in travel direction. */
+export function shiftedDashArray(dash: number, gap: number, shift: number): number[] {
+  const period = dash + gap, s = ((shift % period) + period) % period;
+  return s + dash <= period ? [0, s, dash, period - s - dash] : [s + dash - period, period - dash, period - s, 0];
+}

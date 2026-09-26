@@ -1,21 +1,27 @@
 import path from 'path';
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
 // GEMINI_API_KEY must NEVER be exposed to the client. Use server-side only (see server/).
-export default defineConfig({
-  server: {
-    port: 3000,
-    host: '0.0.0.0',
-    // Ops API runs on 3001 by default (npm run server). Do not use 3000 for API or GET / will 404.
-    proxy: {
-      '/api': { target: 'http://localhost:3001', changeOrigin: true },
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  return {
+    // Ops dashboards and P2P Login are off unless VITE_ENABLE_OPS=true. A literal
+    // `false` lets the build drop the ops pages (and their demo accounts) entirely.
+    define: { __OPS_ENABLED__: JSON.stringify(env.VITE_ENABLE_OPS === 'true') },
+    server: {
+      port: 3000,
+      host: '0.0.0.0',
+      // Ops API runs on 3001 by default (npm run server). Do not use 3000 for API or GET / will 404.
+      proxy: {
+        '/api': { target: 'http://localhost:3001', changeOrigin: true },
+      },
     },
-  },
-  plugins: [react()],
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, '.'),
+    plugins: [react()],
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, '.'),
+      },
     },
-  },
+  };
 });

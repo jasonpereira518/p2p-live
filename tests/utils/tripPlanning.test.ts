@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { busTripTimes, estimateBusLeg, fallbackRideSec, recommendedMode, rideDistanceMeters, tripComparison, type TripOptions } from '../../utils/tripPlanning';
+import { busTripTimes, estimateBusLeg, fallbackRideSec, busUnavailableMessage, mainWalkingSteps, recommendedMode, rideDistanceMeters } from '../../utils/tripPlanning';
 import type { Journey, JourneySegment } from '../../types';
 import { makeVehicle } from '../fixtures/transit';
 
@@ -79,25 +79,11 @@ describe('recommendedMode', () => {
   });
 });
 
-describe('tripComparison', () => {
-  const walk = journey([walkLeg(900, 1130)]);
-  const options = (bus: Journey | null, busUnavailable: TripOptions['busUnavailable'] = null): TripOptions => ({ walk, bus, busUnavailable, recommended: 'walk' });
-  it('says how much faster walking is and how much walking the bus saves', () => {
-    expect(tripComparison(options(busJourney(180, 240, 420, 240)))).toBe('Walking is 3 min faster. The bus cuts your walk from 0.7 mi to 0.3 mi.');
-  });
-  it('says how much faster the bus is', () => {
-    expect(tripComparison(options(busJourney(120, 60, 180, 120)))).toBe('The bus is 7 min faster and cuts your walk from 0.7 mi to 0.3 mi.');
-  });
-  it('calls near-equal times about the same', () => {
-    expect(tripComparison(options(busJourney(180, 120, 420, 180)))).toBe('Both take about the same time. The bus cuts your walk from 0.7 mi to 0.3 mi.');
-  });
-  it('notes when the bus trip means more walking', () => {
-    const shortWalk = { ...options(busJourney(240, 60, 60, 240)), walk: journey([walkLeg(180, 220)]) };
-    expect(tripComparison(shortWalk)).toBe('Walking is 7 min faster. The bus trip has more walking (0.3 mi vs 720 ft).');
-  });
+describe('busUnavailableMessage', () => {
   it('explains why there is no bus option', () => {
-    expect(tripComparison(options(null, 'not-running'))).toBe("Buses aren't running right now. Service starts at 7:00 PM.");
-    expect(tripComparison(options(null, 'no-stops'))).toMatch(/No bus stops/);
+    expect(busUnavailableMessage('not-running')).toBe("Buses aren't running right now. Service starts at 7:00 PM.");
+    expect(busUnavailableMessage('no-stops')).toMatch(/No bus stops/);
+    expect(busUnavailableMessage('no-trip')).toBe('No bus trip fits this route right now.');
   });
 });
 
@@ -116,5 +102,28 @@ describe('busTripTimes', () => {
     expect(busTripTimes(busJourney(180, 30, 420, 240), start)!.leaveInMin).toBe(0);
     expect(busTripTimes(busJourney(180, 30, 420, 240), new Date(start.getTime() + 10 * 60000))!.missed).toBe(true);
     expect(busTripTimes(journey([walkLeg(600, 800)]), start)).toBeNull();
+  });
+});
+
+describe('mainWalkingSteps', () => {
+  const steps = ([
+    ['Walk southwest on the walkway.', 56], ['Turn left onto the walkway.', 61], ['Continue.', 3],
+    ['Turn right onto South Road.', 26], ['Turn left onto the walkway.', 43], ['Turn right onto the walkway.', 49],
+    ['Continue on Stadium Drive.', 52], ['Turn right onto the crosswalk.', 20], ['Turn left onto Stadium Drive.', 30],
+    ['Turn right onto the walkway.', 160], ['You have arrived at your destination.', 0],
+  ] as [string, number][]).map(([instruction, distanceMeters]) => ({ instruction, distanceMeters, durationSec: distanceMeters / 1.4 }));
+
+  it('keeps the first step, named-street turns and long stretches; folds the rest into the step before', () => {
+    expect(mainWalkingSteps(steps).map((s) => [s.instruction, Math.round(s.distanceMeters)])).toEqual([
+      ['Walk southwest on the walkway.', 117],
+      ['Turn right onto South Road.', 118],
+      ['Continue on Stadium Drive.', 102],
+      ['Turn right onto the walkway.', 160],
+    ]);
+  });
+  it('does not change the steps it was given', () => {
+    mainWalkingSteps(steps);
+    expect(steps[0].distanceMeters).toBe(56);
+    expect(mainWalkingSteps(undefined)).toEqual([]);
   });
 });

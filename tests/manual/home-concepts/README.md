@@ -57,8 +57,9 @@ The standalone preview fits the current screen, up to 390 px wide.
   staff components; none refer to the prototype. Existing build warnings about
   `/index.css` and large chunks remain.
 
-Screenshots are in `artifacts/home-concepts/`: running-state captures for each
-concept at 360 and 390 px, comparison images for the shared states, and the
-200% text-size check. All are demo data, not current service.
+The screenshots captured during verification were temporary local artifacts
+and have been removed. Future captures can go in the ignored
+`artifacts/home-concepts/` directory. All captures used demo data, not current
+service.
 
 No production change or deployment.

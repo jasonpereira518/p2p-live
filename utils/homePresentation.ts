@@ -1,6 +1,6 @@
 import type { ClientLiveStatus, Coordinate, Stop, StopArrival } from '../types';
 import { ROUTE_IDS } from '../data/routes';
-import { getServiceResumeLabel, isRouteOperatingNow } from './serviceSchedule';
+import { getServiceResumeLabel, isRouteOperatingNow, nextServiceStart } from './serviceSchedule';
 import { eligibleCampusLocation } from './mapPresentation';
 import { findNearestStop } from './geo';
 
@@ -40,4 +40,18 @@ export function homeDeparture(arrivals: StopArrival[], walkSec: number): HomeDep
 export function homeEta(seconds: number | null, stale = false) {
   if (stale || seconds == null || !Number.isFinite(seconds) || seconds < 0) return { value: '—', unit: '' };
   return seconds < 60 ? { value: 'Now', unit: '' } : { value: String(Math.floor(seconds / 60)), unit: 'min' };
+}
+
+export type HomeUrgency = 'calm' | 'soon' | 'now';
+
+/** How pressing it is to leave: amber from 4 minutes out, red at a minute or less. */
+export function homeUrgency(leaveInMin: number): HomeUrgency {
+  return leaveInMin <= 1 ? 'now' : leaveInMin <= 4 ? 'soon' : 'calm';
+}
+
+/** Countdown to evening service, e.g. "2h 14m" or "35 min". */
+export function serviceCountdown(now = new Date()): string {
+  const minutes = Math.ceil((nextServiceStart(now).getTime() - now.getTime()) / 60000);
+  const hours = Math.floor(minutes / 60);
+  return hours ? `${hours}h ${minutes % 60}m` : `${minutes} min`;
 }

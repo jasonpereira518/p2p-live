@@ -16,6 +16,9 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
 const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN;
 const GMV_RTPI_API_KEY = process.env.GMV_RTPI_API_KEY;
+// Ops dashboard endpoints (diagnostics, Gemini summaries) are off unless ENABLE_OPS_API=true,
+// matching the rider-only frontend build (VITE_ENABLE_OPS).
+const OPS_API_ENABLED = process.env.ENABLE_OPS_API === 'true';
 const gmv = createGmvService({ client: createGmvClient({ apiKey: GMV_RTPI_API_KEY }) });
 const CACHE_TTL_MS = 60 * 1000; // 60 seconds
 const WALK_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
@@ -389,7 +392,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (req.url === '/api/admin/diagnostics' && req.method === 'GET') {
+  if (OPS_API_ENABLED && req.url === '/api/admin/diagnostics' && req.method === 'GET') {
     const mem = process.memoryUsage();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(
@@ -424,7 +427,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (req.url === '/api/ops/complaints/summary' && req.method === 'POST') {
+  if (OPS_API_ENABLED && req.url === '/api/ops/complaints/summary' && req.method === 'POST') {
     let body = '';
     req.on('data', (chunk) => { body += chunk; });
     req.on('end', () => {
@@ -498,7 +501,7 @@ const server = http.createServer((req, res) => {
     handleWalkDirections([fromParts[0], fromParts[1]], [toParts[0], toParts[1]], res);
     return;
   }
-  if (req.url === '/api/admin-optimization-summary' && req.method === 'POST') {
+  if (OPS_API_ENABLED && req.url === '/api/admin-optimization-summary' && req.method === 'POST') {
     let body = '';
     req.on('data', (chunk) => { body += chunk; });
     req.on('end', () => {

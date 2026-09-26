@@ -11,6 +11,7 @@ import type { TripMode, TripOptions } from '../utils/tripPlanning';
 import { useTransit } from '../context/TransitProvider';
 import { API } from '../utils/api';
 import { TripResults } from './TripResults';
+import './motion.css';
 import './trip.css';
 
 const TOP_DESTINATIONS: Destination[] = TOP_LOCATIONS.map(topLocationToDestination);
@@ -440,9 +441,13 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
   if (routingLoading) {
     return (
       <div className="trip-view trip-loading" role="status">
-        <div className="trip-spinner" aria-hidden="true" />
         <p className="trip-loading-title">Finding walk and bus options…</p>
-        <p className="trip-loading-note">Comparing walking with the next buses</p>
+        <div aria-hidden="true" className="skel" style={{ width: '60%', height: 30 }} />
+        <div aria-hidden="true" className="trip-skel-options"><div className="skel" style={{ height: 96, borderRadius: 14 }} /><div className="skel" style={{ height: 96, borderRadius: 14 }} /></div>
+        <div aria-hidden="true" className="skel" style={{ height: 44, borderRadius: 12 }} />
+        <div aria-hidden="true" className="skel" style={{ height: 190, borderRadius: 18 }} />
+        <div aria-hidden="true" className="skel" style={{ width: '75%', height: 18 }} />
+        <div aria-hidden="true" className="skel" style={{ width: '55%', height: 18 }} />
       </div>
     );
   }
