@@ -1,8 +1,8 @@
 /**
- * Bus-leg math for Plan Trip.
+ * Bus-leg math for trip planning.
  */
 
-import type { Journey, JourneySegment, LiveVehicle, RouteId, WalkingStep } from '../types';
+import type { Destination, Journey, JourneySegment, LiveVehicle, RouteId, WalkingStep } from '../types';
 import { getServiceResumeLabel } from './serviceSchedule';
 
 export const BUS_SPEED_MPS = 6;
@@ -76,6 +76,13 @@ export interface TripOptions {
   bus: Journey | null;
   busUnavailable: BusUnavailableReason | null;
   recommended: TripMode;
+}
+
+/** A planned trip from the rider's location: both options, the one they picked, and where to (for refresh). */
+export interface PlannedTrip {
+  options: TripOptions;
+  mode: TripMode;
+  destination: Destination;
 }
 
 /** Walking wins near-ties: no wait and no risk of missing the bus. */

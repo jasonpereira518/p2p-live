@@ -34,7 +34,22 @@ export interface WalkDirectionsResult {
   steps: { instruction: string; distanceMeters: number; durationSec: number }[];
 }
 
-export async function getWalkDirections(from: Coordinate, to: Coordinate): Promise<WalkDirectionsResult | null> {
+/** Walks between the same points (to ~1 m) are reused for a few minutes: trips from one spot share their stop legs. */
+const WALK_CACHE_MS = 5 * 60 * 1000;
+const walkCache = new Map<string, { at: number; result: Promise<WalkDirectionsResult | null> }>();
+
+export function getWalkDirections(from: Coordinate, to: Coordinate): Promise<WalkDirectionsResult | null> {
+  const key = [from.lon, from.lat, to.lon, to.lat].map((n) => n.toFixed(5)).join(',');
+  const hit = walkCache.get(key);
+  if (hit && Date.now() - hit.at < WALK_CACHE_MS) return hit.result;
+  const result = fetchWalkDirections(from, to);
+  walkCache.set(key, { at: Date.now(), result });
+  // Failures are retried next time rather than cached.
+  void result.then((r) => { if (!r) walkCache.delete(key); });
+  return result;
+}
+
+async function fetchWalkDirections(from: Coordinate, to: Coordinate): Promise<WalkDirectionsResult | null> {
   const fromStr = `${from.lon},${from.lat}`;
   const toStr = `${to.lon},${to.lat}`;
   try {

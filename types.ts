@@ -70,7 +70,7 @@ export interface Journey {
   arrivalTime: Date;
 }
 
-export type ViewState = 'list' | 'map' | 'plan';
+export type ViewState = 'list' | 'map';
 
 // ---------------------------------------------------------------------------
 // Live transit (GMV Syncromatics via /api/live/*)

@@ -1,4 +1,4 @@
-/* Plan Trip, in the Home "Catch your bus" style. Scoped under .passenger-app .trip-view to win over passenger.css. */
+/* Trip options (in the search sheet), in the Home "Catch your bus" style. Scoped under .passenger-app .trip-view to win over passenger.css. */
 .passenger-app .trip-view{color:#152735}
 .passenger-app .trip-view [data-route=P2P_EXPRESS]{--trip-route:#2f73a0;--trip-tint:#e7f2fa;--trip-tint-border:#c5dfef;--trip-action:#245e85}
 .passenger-app .trip-view [data-route=BAITY_HILL]{--trip-route:#b73230;--trip-tint:#fbeceb;--trip-tint-border:#f0cdca;--trip-action:#a3302d}

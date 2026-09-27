@@ -1,15 +1,17 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
-import { ViewState, Stop, Coordinate, Journey } from './types';
+import { flushSync } from 'react-dom';
+import { ViewState, Stop, Coordinate, Journey, Destination } from './types';
 import { getDistanceMiles, UNC_CAMPUS_CENTER, SERVICE_RADIUS_MILES } from './utils/geo';
 import { BottomNav } from './components/BottomNav';
 import { HomeView } from './components/HomeView';
 import { BusDetailSheet } from './components/BusDetailSheet';
 import { MapView } from './components/MapView';
-import { PlanTripView } from './components/PlanTripView';
+import { SearchSheet, type SearchSheetRequest } from './components/SearchSheet';
 import { AppHeader } from './components/AppHeader';
 import { X } from 'lucide-react';
 import { useTransit } from './context/TransitProvider';
-import type { PlannedTrip } from './components/PlanTripView';
+import { getStarredPlaces, toggleStarredPlace } from './storage/starredPlaces';
+import { eligibleCampusLocation } from './utils/mapPresentation';
 import './components/passenger.css';
 import { ServiceMessageBanner } from './components/ServiceMessageBanner';
 
@@ -22,9 +24,13 @@ function App() {
   const [selectedBusId, setSelectedBusId] = useState<string | null>(null);
   const [selectedStop, setSelectedStop] = useState<Stop | null>(null);
   const [activeJourney, setActiveJourney] = useState<Journey | null>(null);
-  const [plannedTrip, setPlannedTrip] = useState<PlannedTrip | null>(null);
   const [loadingLoc, setLoadingLoc] = useState(true);
   const [geoResolved, setGeoResolved] = useState(false); // true only when getCurrentPosition succeeds
+  const [searchRequest, setSearchRequest] = useState<SearchSheetRequest | null>(null);
+  const [behindSheet, setBehindSheet] = useState(false);
+  const [starred, setStarred] = useState<Destination[]>(() => getStarredPlaces());
+  const appRoot = useRef<HTMLDivElement>(null);
+  const searchOpener = useRef<HTMLElement | null>(null);
   const [outsideAreaMiles, setOutsideAreaMiles] = useState<number | null>(null);
   const [warningDismissed, setWarningDismissed] = useState(false);
   const [centerOnCampusAt, setCenterOnCampusAt] = useState<number | null>(null);
@@ -89,14 +95,27 @@ function App() {
     return () => observer.disconnect();
   }, [view]);
 
-  const handlePlannedTripChange = (trip: PlannedTrip | null) => {
-    setPlannedTrip(trip);
-    setActiveJourney(trip ? trip.options[trip.mode] : null);
-  };
+  // Mount the sheet inside the tap itself so it can focus its field and phones raise the keyboard.
+  const openSearch = useCallback((from: HTMLElement, place?: Destination) => {
+    searchOpener.current = from;
+    flushSync(() => setSearchRequest({ origin: from.getBoundingClientRect(), label: place ? place.name : 'Search a building or stop', place }));
+  }, []);
 
-  const handleViewOnMap = () => {
-    setView('map');
-  };
+  const closeSearch = useCallback(() => {
+    setSearchRequest(null);
+    setBehindSheet(false);
+    // Inert elements can't take focus, so lift it now rather than waiting for the effect.
+    appRoot.current?.removeAttribute('inert');
+    if (searchOpener.current?.isConnected) searchOpener.current.focus({ preventScroll: true });
+    searchOpener.current = null;
+  }, []);
+
+  // While the sheet is up, the app behind is inert and the page edges show the dark backdrop.
+  useEffect(() => {
+    const open = searchRequest != null;
+    appRoot.current?.toggleAttribute('inert', open);
+    document.documentElement.classList.toggle('has-search-sheet', open);
+  }, [searchRequest]);
 
   const dismissDistanceWarning = useCallback(() => {
     setWarningDismissed(true);
@@ -110,7 +129,8 @@ function App() {
   }, []);
 
   return (
-    <div className={`passenger-app ${view !== 'map' ? 'is-light' : ''} min-h-[100dvh] h-full w-full flex flex-col bg-gray-50 relative`}>
+    <>
+    <div ref={appRoot} className={`passenger-app ${view !== 'map' ? 'is-light' : ''} ${behindSheet ? 'is-behind-sheet' : ''} min-h-[100dvh] h-full w-full flex flex-col bg-gray-50 relative`}>
       <AppHeader loadingLoc={loadingLoc} compact={view === 'map'} home />
 
       {/* Main Content Area: flex-1 min-h-0 so list can scroll */}
@@ -152,24 +172,10 @@ function App() {
         </div>
 
         {view === 'list' && <HomeView location={userLocation} locationResolved={geoResolved} loadingLocation={loadingLoc}
-          onSelectBus={bus => { setSelectedStop(null); setActiveJourney(null); setSelectedBusId(bus.id); }}
+          starred={starred} onOpenSearch={openSearch}
           onSelectStop={stop => { setSelectedBusId(null); setActiveJourney(null); setSelectedStop(stop); setView('map'); }}
           onBrowseMap={() => { setSelectedBusId(null); setSelectedStop(null); setActiveJourney(null); setCenterOnCampusAt(Date.now()); setView('map'); }} />}
 
-        {view === 'plan' && (
-          <div
-            className="passenger-plan-scroll flex-1 min-h-0 overflow-y-auto no-scrollbar pb-20"
-            style={{ WebkitOverflowScrolling: 'touch' }}
-          >
-            <PlanTripView
-              userLocation={userLocation}
-              plannedTrip={plannedTrip}
-              onPlannedTripChange={handlePlannedTripChange}
-              onViewOnMap={handleViewOnMap}
-            />
-          </div>
-        )}
-        
         {view === 'map' && (
           <div className="h-full w-full relative pb-[calc(4rem+env(safe-area-inset-bottom))]">
             <MapView
@@ -211,6 +217,14 @@ function App() {
 
       <BottomNav currentView={view} onChangeView={setView} />
     </div>
+    {searchRequest && <SearchSheet request={searchRequest} location={userLocation}
+      locationKnown={eligibleCampusLocation(userLocation, geoResolved) != null}
+      starred={starred} onToggleStar={place => setStarred(toggleStarredPlace(place))}
+      onBehindChange={setBehindSheet}
+      onSelectStop={stop => { searchOpener.current = null; setSelectedBusId(null); setActiveJourney(null); setSelectedStop(stop); setView('map'); }}
+      onStartTrip={journey => { searchOpener.current = null; setSelectedBusId(null); setSelectedStop(null); setActiveJourney(journey); setView('map'); }}
+      onClosed={closeSearch} />}
+    </>
   );
 }
 
