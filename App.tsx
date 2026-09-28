@@ -110,8 +110,8 @@ function App() {
   }, []);
 
   return (
-    <div className={`passenger-app ${view !== 'map' ? 'is-light' : ''} min-h-[100dvh] h-full w-full flex flex-col bg-gray-50 relative`}>
-      <AppHeader loadingLoc={loadingLoc} compact={view === 'map'} home />
+    <div className={`passenger-app ${view !== 'map' ? 'is-light' : ''} min-h-[100dvh] h-full w-full flex flex-col relative`} style={{ background: view === 'map' ? undefined : 'var(--rider-bg)' }}>
+      {view !== 'map' && <AppHeader loadingLoc={loadingLoc} home />}
 
       {/* Main Content Area: flex-1 min-h-0 so list can scroll */}
       <main className={`flex-1 min-h-0 flex flex-col relative ${view === 'list' ? 'home-main' : ''}`}>
@@ -119,22 +119,20 @@ function App() {
         <div ref={noticesRef} className={view === 'list' ? 'home-notices' : 'pointer-events-none absolute inset-x-0 top-2 z-30 flex flex-col items-center gap-2 px-4 max-h-[30dvh] overflow-y-auto'}>
           <ServiceMessageBanner />
           {outsideAreaMiles != null && outsideAreaMiles > SERVICE_RADIUS_MILES && !warningDismissed && (
-            <div className="pointer-events-auto w-full max-w-md rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 shadow-sm relative">
+            <div className="rider-banner is-warning pointer-events-auto">
               <button
                 type="button"
                 onClick={dismissDistanceWarning}
-                className="absolute right-2 top-2 inline-flex items-center justify-center rounded-full p-1.5 text-amber-700 hover:bg-amber-100 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                className="rider-banner-dismiss"
                 aria-label="Dismiss distance warning"
               >
                 <X size={14} />
               </button>
-              <p className="text-sm font-medium text-amber-900 pr-6">
-                You appear to be{' '}
-                <strong>{Math.round(outsideAreaMiles)} miles from UNC Chapel Hill</strong>. P2P Live is designed
-                for use on or near campus.
+              <p className="rider-banner-title">
+                You’re about {Math.round(outsideAreaMiles)} miles from UNC Chapel Hill
               </p>
-              <p className="text-xs text-amber-800/90 mt-1 pr-6">
-                You can still explore routes, but live bus tracking may not be relevant at your current location.
+              <p className="rider-banner-body">
+                P2P Live is meant for campus. You can still explore routes, but live tracking may not match where you are.
               </p>
               <button
                 type="button"
@@ -143,7 +141,7 @@ function App() {
                   setView('map');
                   setCenterOnCampusAt(Date.now());
                 }}
-                className="mt-3 inline-flex items-center justify-center px-3 py-2 rounded-lg bg-amber-200/80 text-amber-900 text-sm font-semibold hover:bg-amber-200 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                className="rider-banner-action"
               >
                 Center Map on UNC
               </button>
@@ -171,7 +169,7 @@ function App() {
         )}
         
         {view === 'map' && (
-          <div className="h-full w-full relative pb-[calc(4rem+env(safe-area-inset-bottom))]">
+          <div className="h-full w-full relative pb-[calc(49px+env(safe-area-inset-bottom))]">
             <MapView
               vehicles={vehicles}
               userLocation={userLocation}

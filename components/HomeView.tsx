@@ -71,18 +71,17 @@ export function HomeView(props: HomeViewProps) {
   let nearby: React.ReactNode;
   if (!network && networkStatus === 'unavailable') {
     nearby = <EmptyCard icon={AlertCircle} title="Route information unavailable" tone="warning" action={{ ...refreshAction, label: refreshing ? 'Refreshing…' : 'Retry' }}><p>Routes and stops could not be loaded. We’ll retry automatically.</p></EmptyCard>;
-  } else if (props.loadingLocation || (!network && networkStatus === 'loading') || (nearest && status === 'loading')) {
-    nearby = <NextRideSkeleton label={props.loadingLocation ? 'Finding your nearest stop…' : nearest ? 'Loading arrivals…' : 'Loading campus stops…'} />;
   } else if (summary.tone === 'inactive') {
-    // Nothing to catch before service, with or without a location: a night sky counting down to 7 PM.
+    // Nothing to catch before service — show the countdown even while location is still resolving.
     nearby = <section className="home-night" aria-labelledby="home-night-title">
       <span className="home-stars" aria-hidden="true">{STARS.map(([left, top, delay], i) => <i key={i} style={{ left: `${left}%`, top: `${top}%`, animationDelay: `${delay}s` }} />)}</span>
       <span className="home-moon" aria-hidden="true" />
-      <h2 id="home-night-title" className="home-night-kicker">Buses start in</h2>
-      <p className="home-night-count"><RollingNumber value={serviceCountdown(now)} /></p>
-      <p className="home-night-time">{summary.value} tonight</p>
+      <h2 id="home-night-title" className="home-night-count"><RollingNumber value={serviceCountdown(now)} /></h2>
+      <p className="home-night-time">Buses start at {summary.value}</p>
       <button className="home-night-action" onClick={() => nearest ? props.onSelectStop(nearest) : props.onBrowseMap()}>{nearest ? 'View nearest stop' : 'Browse stops'}<ChevronRight size={20} aria-hidden="true" /></button>
     </section>;
+  } else if (props.loadingLocation || (!network && networkStatus === 'loading') || (nearest && status === 'loading')) {
+    nearby = <NextRideSkeleton label={props.loadingLocation ? 'Finding your nearest stop…' : nearest ? 'Loading arrivals…' : 'Loading campus stops…'} />;
   } else if (!nearest) {
     nearby = !props.locationResolved
       ? <EmptyCard icon={LocateOff} title="Find your boarding stop" action={{ label: 'Browse stops', onClick: props.onBrowseMap }}><p>Your location is unavailable. Browse campus stops to choose where to board.</p></EmptyCard>
@@ -97,7 +96,7 @@ export function HomeView(props: HomeViewProps) {
     const after = nextArrivalsByRoute({ stopId: nearest.id, network, snapshot, status, now })
       .sort((a, b) => a.etaSec - b.etaSec).find(a => a.etaSec > arrival.etaSec + 60);
     nearby = <>
-      <h2 className="home-title" id="home-next-title">Your next ride.</h2>
+      <h2 className="home-title" id="home-next-title">Your next ride</h2>
       <section className="home-catch" data-route={arrival.routeId} data-urgency={urgency} aria-labelledby="home-next-title">
         <div className="home-catch-route"><span className="home-route-pill">{arrival.routeName}</span>
           {urgency !== 'calm' && <span className={`home-urgency ${urgency}`}>{urgency === 'now' ? 'Time to go' : 'Leave soon'}</span>}</div>
@@ -110,7 +109,7 @@ export function HomeView(props: HomeViewProps) {
         <div className="home-boarding"><span>Board at</span><h3>{nearest.name}</h3></div>
         <p className="home-bus-line"><Bus aria-hidden="true" /><span className="home-bus-text"><span><span>{busInMin < 1 ? 'Bus arriving now' : `Bus arrives in ${busInMin} min`}</span> <small>{walkMin} min walk</small></span></span></p>
         {after && <p className="home-after"><Clock aria-hidden="true" /><span>Can’t make it? Next bus in <strong>{Math.floor(after.etaSec / 60)} min</strong> · {after.routeName}{after.source === 'scheduled' ? ' · est.' : ''}</span></p>}
-        <button className="home-primary" onClick={() => props.onSelectStop(nearest)}>View stop <ArrowUpRight size={20} aria-hidden="true" /></button>
+        <button className="home-primary" onClick={() => props.onSelectStop(nearest)}>View stop on map <ArrowUpRight size={18} aria-hidden="true" /></button>
       </section>
     </>;
   } else if (trackingFailed) {
@@ -131,7 +130,7 @@ export function HomeView(props: HomeViewProps) {
     <section className="home-campus" aria-labelledby="home-campus-title">
       <div className="home-list-heading"><h2 id="home-campus-title">Buses on campus</h2><button className="home-refresh" onClick={() => void refresh()} disabled={refreshing} aria-label="Refresh bus times"><RefreshCw size={20} className={refreshing ? 'home-spinning' : ''} aria-hidden="true" /></button></div>
       <p className="home-list-explainer">Times below are to each bus’s next stop.</p>
-      <div className="home-bus-rows">
+          <div className="home-bus-rows">
         {status === 'loading' ? <div className="home-list-skeleton" role="status"><span className="sr-only">{listMessage}</span>
           {[0, 1].map(i => <div key={i} className="home-skel-row" aria-hidden="true"><span><i className="skel" style={{ width: '45%' }} /><i className="skel" style={{ width: '70%' }} /></span><i className="skel home-skel-eta" /></div>)}
         </div> : (!vehicles.length || trackingFailed) ? <p className="home-list-empty" role="status">{listMessage}</p> : vehicles.map(bus => {

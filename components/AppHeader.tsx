@@ -17,26 +17,47 @@ interface AppHeaderProps {
 
 export function AppHeader({ loadingLoc = false, compact = false, home = false }: AppHeaderProps) {
   return (
-    <header className={`bg-white border-b border-gray-100 px-4 flex justify-between items-center z-10 shrink-0 ${home ? `home-header ${compact ? 'compact-passenger-header' : ''}` : compact ? 'min-h-16 py-2' : 'pt-12 pb-3 shadow-sm'}`} style={compact ? { paddingTop: 'max(8px, env(safe-area-inset-top))' } : undefined}>
+    <header
+      className={`flex justify-between items-center z-10 shrink-0 ${
+        home
+          ? `home-header ${compact ? 'compact-passenger-header' : ''}`
+          : compact
+            ? 'min-h-11 py-2 px-4 bg-white/90 border-b border-black/5'
+            : 'pt-12 pb-3 px-4 bg-white shadow-sm'
+      }`}
+      style={
+        compact && !home
+          ? { paddingTop: 'max(8px, env(safe-area-inset-top))', backdropFilter: 'saturate(180%) blur(20px)', WebkitBackdropFilter: 'saturate(180%) blur(20px)' }
+          : undefined
+      }
+    >
       <div className="flex items-center gap-2">
         <Link
           to="/"
-          className={`cursor-pointer flex ${compact ? 'flex-col items-start gap-0' : 'items-center gap-2'} outline-none focus:ring-2 focus:ring-p2p-blue focus:ring-offset-2 rounded`}
+          className={`cursor-pointer flex ${compact ? 'flex-col items-start gap-0' : 'items-center gap-2'} outline-none focus-visible:ring-2 focus-visible:ring-[#007aff] focus-visible:ring-offset-2 rounded-lg`}
           aria-label="Go to homepage"
         >
-          {home ? <h1 className="home-wordmark text-p2p-blue"><em>P<span className="text-p2p-red">2</span>P</em> <span className="home-live text-p2p-black">Live</span></h1> : <>
-          <h1 className="text-2xl font-black text-p2p-blue tracking-tight">
-            P<span className="text-p2p-red">2</span>P <span className="text-p2p-black">Live</span>
-          </h1>
-          <span className={compact ? 'text-[10px] text-slate-500' : 'px-2 py-0.5 bg-p2p-light-red/30 text-p2p-red text-[10px] font-bold uppercase rounded-full tracking-wide'}>
-            UNC Chapel Hill
-          </span>
-          </>}
+          {home ? (
+            <h1 className="home-wordmark text-p2p-blue">
+              <em>
+                P<span className="text-p2p-red">2</span>P
+              </em>{' '}
+              <span className="home-live text-p2p-black">Live</span>
+            </h1>
+          ) : (
+            <h1 className="text-[17px] font-semibold tracking-tight text-p2p-blue">
+              P<span className="text-p2p-red">2</span>P <span className="text-p2p-black">Live</span>
+            </h1>
+          )}
         </Link>
       </div>
       <div className="flex items-center gap-2 sm:gap-3">
-        {loadingLoc && <LocateFixed className="animate-spin text-gray-300 shrink-0" size={20} aria-hidden />}
-        {AccountMenu && <Suspense fallback={null}><AccountMenu home={home} /></Suspense>}
+        {loadingLoc && <LocateFixed className="animate-spin text-black/25 shrink-0" size={18} aria-hidden />}
+        {AccountMenu && (
+          <Suspense fallback={null}>
+            <AccountMenu home={home} />
+          </Suspense>
+        )}
       </div>
     </header>
   );

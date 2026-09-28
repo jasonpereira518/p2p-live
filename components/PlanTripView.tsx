@@ -471,7 +471,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
     <div ref={dropdownScrollRef} className="max-h-[60vh] overflow-y-auto pt-4 pb-2 px-2" style={{ WebkitOverflowScrolling: 'touch' }}>
       {showDropdownUnfocused && (
         <>
-          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2">Top destinations</h3>
+          <h3 className="trip-section-label px-2">Top destinations</h3>
           <ul className="space-y-1" role="listbox" aria-label="Top destinations" aria-activedescendant={selectableItems.length ? `dropdown-option-${highlightedIndex}` : undefined}>
             {TOP_DESTINATIONS.map((dest, i) => (
               <li key={dest.id} role="option" aria-selected={highlightedIndex === i}>
@@ -481,7 +481,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
                   data-dropdown-index={i}
                   onClick={() => runSelection({ type: 'top', dest })}
                   onMouseEnter={() => setHighlightedIndex(i)}
-                  className={`w-full px-3 py-2.5 rounded-lg text-left flex items-center gap-2 active:scale-[0.99] transition-transform ${highlightedIndex === i ? 'bg-p2p-blue/10' : 'hover:bg-gray-50'}`}
+                  className={`w-full px-4 py-3 text-left flex items-center gap-2 ${highlightedIndex === i ? 'bg-black/[0.06]' : ''}`}
                 >
                   <MapPin size={18} className="text-gray-400 shrink-0" />
                   <div className="min-w-0">
@@ -499,12 +499,12 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
         <div className="space-y-4">
           <section aria-labelledby="recent-heading">
             <div className="flex items-center justify-between mb-1 px-2">
-              <h3 id="recent-heading" className="text-xs font-bold text-gray-400 uppercase tracking-wider">Recent searches</h3>
+              <h3 id="recent-heading" className="trip-section-label">Recent searches</h3>
               {recentSearches.length > 0 && (
                 <button
                   type="button"
                   onClick={handleClearRecent}
-                  className="text-xs font-semibold text-p2p-blue hover:underline flex items-center gap-1"
+                  className="text-[15px] font-normal text-[#007aff] flex items-center gap-1"
                 >
                   <X size={14} /> Clear
                 </button>
@@ -520,7 +520,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
                       data-dropdown-index={i}
                       onClick={() => runSelection({ type: 'recent', item })}
                       onMouseEnter={() => setHighlightedIndex(i)}
-                      className={`w-full px-3 py-2.5 rounded-lg flex items-center gap-3 text-left active:scale-[0.99] transition-transform ${highlightedIndex === i ? 'bg-p2p-blue/10' : 'hover:bg-gray-50'}`}
+                      className={`w-full px-4 py-3 flex items-center gap-3 text-left ${highlightedIndex === i ? 'bg-black/[0.06]' : ''}`}
                     >
                       <History size={18} className="text-gray-400 shrink-0" />
                       <div className="min-w-0">
@@ -537,7 +537,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
             )}
           </section>
           <section aria-labelledby="top-locations-heading">
-            <h3 id="top-locations-heading" className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2">Top locations</h3>
+            <h3 id="top-locations-heading" className="trip-section-label px-2">Top locations</h3>
             <ul className="space-y-1" role="listbox" aria-label="Top locations" aria-activedescendant={selectableItems.length ? `dropdown-option-${highlightedIndex}` : undefined}>
               {TOP_DESTINATIONS.map((dest, i) => {
                 const idx = recentSearches.length + i;
@@ -549,7 +549,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
                       data-dropdown-index={idx}
                       onClick={() => runSelection({ type: 'top', dest })}
                       onMouseEnter={() => setHighlightedIndex(idx)}
-                      className={`w-full px-3 py-2.5 rounded-lg text-left flex items-center gap-2 active:scale-[0.99] transition-transform ${highlightedIndex === idx ? 'bg-p2p-blue/10' : 'hover:bg-gray-50'}`}
+                      className={`w-full px-4 py-3 text-left flex items-center gap-2 ${highlightedIndex === idx ? 'bg-black/[0.06]' : ''}`}
                     >
                       <MapPin size={18} className="text-gray-400 shrink-0" />
                       <div className="min-w-0">
@@ -568,7 +568,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
       {showDropdownFocusedQuery && (
         <div className="space-y-4">
           <div>
-            <h3 id="top-locations-heading" className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2">Top locations</h3>
+            <h3 id="top-locations-heading" className="trip-section-label px-2">Top locations</h3>
             {topLocationSuggestions.length > 0 ? (
               <ul className="space-y-1" role="listbox" aria-label="Top locations" aria-activedescendant={selectableItems.length ? `dropdown-option-${highlightedIndex}` : undefined}>
                 {topLocationSuggestions.map((dest, i) => (
@@ -579,7 +579,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
                       data-dropdown-index={i}
                       onClick={() => runSelection({ type: 'top', dest })}
                       onMouseEnter={() => setHighlightedIndex(i)}
-                      className={`w-full px-3 py-2.5 rounded-lg text-left flex items-center gap-2 active:scale-[0.99] transition-transform ${highlightedIndex === i ? 'bg-p2p-blue/10' : 'hover:bg-gray-50'}`}
+                      className={`w-full px-4 py-3 text-left flex items-center gap-2 ${highlightedIndex === i ? 'bg-black/[0.06]' : ''}`}
                     >
                       <MapPin size={18} className="text-gray-400 shrink-0" />
                       <div className="min-w-0">
@@ -597,7 +597,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
           </div>
           <div>
             <div className="flex items-center justify-between mb-1 px-2">
-              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Address results</h3>
+              <h3 className="trip-section-label">Address results</h3>
               {geocodeLoading && <span className="text-[11px] text-gray-400">Searching…</span>}
             </div>
             {addressResults.length > 0 ? (
@@ -612,7 +612,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
                       data-dropdown-index={idx}
                       onClick={() => runSelection({ type: 'address', item })}
                       onMouseEnter={() => setHighlightedIndex(idx)}
-                      className={`w-full px-3 py-2.5 rounded-lg text-left flex items-center gap-2 active:scale-[0.99] transition-transform ${highlightedIndex === idx ? 'bg-p2p-blue/10' : 'hover:bg-gray-50'}`}
+                      className={`w-full px-4 py-3 text-left flex items-center gap-2 ${highlightedIndex === idx ? 'bg-black/[0.06]' : ''}`}
                     >
                       <MapPin size={18} className="text-gray-400 shrink-0" />
                       <div className="min-w-0">
@@ -641,26 +641,28 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
 
         {/* Search widget — compact (single To) or expanded (From + To) */}
         {!expandedSearch ? (<>
-          <div className={`trip-card bg-white shadow-sm border border-gray-200 overflow-visible ${showDropdownUnfocused ? 'rounded-xl' : 'rounded-t-xl border-b-0'}`}>
+          <div className={`trip-card overflow-visible ${showDropdownUnfocused ? 'rounded-2xl' : 'rounded-t-2xl'}`}>
             <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none z-10" size={20} aria-hidden />
-              <input
-                id="plan-trip-destination"
-                type="text"
-                autoComplete="off"
-                placeholder="Search a place or address"
-                aria-label="Destination search"
-                aria-expanded={searchFocused || showDropdownUnfocused}
-                aria-haspopup="listbox"
-                className="w-full bg-transparent pl-12 pr-4 py-4 text-lg font-medium focus:outline-none focus:ring-2 focus:ring-p2p-blue focus:ring-inset placeholder-gray-400 border-0 rounded-t-xl"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onFocus={() => { if (blurTimerRef.current) clearTimeout(blurTimerRef.current); blurTimerRef.current = null; setSearchFocused(true); }}
-                onBlur={() => { blurTimerRef.current = setTimeout(() => setSearchFocused(false), 200); }}
-                onKeyDown={handleSearchKeyDown}
-              />
+              <div className="trip-search-field">
+                <Search size={18} aria-hidden />
+                <input
+                  id="plan-trip-destination"
+                  type="text"
+                  autoComplete="off"
+                  placeholder="Search a place or address"
+                  aria-label="Destination search"
+                  aria-expanded={searchFocused || showDropdownUnfocused}
+                  aria-haspopup="listbox"
+                  className="focus:outline-none placeholder-black/25"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onFocus={() => { if (blurTimerRef.current) clearTimeout(blurTimerRef.current); blurTimerRef.current = null; setSearchFocused(true); }}
+                  onBlur={() => { blurTimerRef.current = setTimeout(() => setSearchFocused(false), 200); }}
+                  onKeyDown={handleSearchKeyDown}
+                />
+              </div>
               {!showDropdownUnfocused && (
-                <div className="absolute top-full left-0 right-0 z-50 bg-white rounded-b-xl shadow-lg border border-t border-gray-200 overflow-hidden">
+                <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white rounded-2xl shadow-lg overflow-hidden">
                   {dropdownContent}
                 </div>
               )}
@@ -671,21 +673,21 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
             <button type="button" onClick={() => setExpandedSearch(true)} aria-label="Change start location"><Pencil size={13} aria-hidden="true" />Change</button>
           </p>
         </>) : (
-          <div className={`trip-card bg-white shadow-sm border border-gray-200 overflow-visible ${(fromSearchFocused || searchFocused) ? 'rounded-t-xl border-b-0' : 'rounded-xl'}`}>
+          <div className={`trip-card overflow-visible ${(fromSearchFocused || searchFocused) ? 'rounded-t-2xl' : 'rounded-2xl'}`}>
             <div className="p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-gray-700">Edit start & destination</span>
                 <button
                   type="button"
                   onClick={() => setExpandedSearch(false)}
-                  className="text-sm font-medium text-p2p-blue hover:underline"
+                  className="text-[17px] font-normal text-[#007aff]"
                 >
                   Done
                 </button>
               </div>
               {/* From */}
               <div className="relative">
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">From</label>
+                <label className="trip-section-label">From</label>
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none z-10 mt-1" size={18} aria-hidden />
                 <input
                   id="plan-trip-from"
@@ -695,7 +697,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
                   aria-label="Start location"
                   aria-expanded={fromSearchFocused}
                   aria-haspopup="listbox"
-                  className="w-full bg-gray-50 border border-gray-200 pl-10 pr-10 py-3 text-base font-medium focus:outline-none focus:ring-2 focus:ring-p2p-blue focus:ring-inset focus:border-p2p-blue rounded-xl placeholder-gray-400"
+                  className="w-full bg-black/[0.04] border-0 pl-10 pr-10 py-3 text-[17px] font-normal focus:outline-none focus:ring-2 focus:ring-[#007aff] focus:ring-inset rounded-xl placeholder-black/25"
                   value={fromSearchFocused ? fromQuery : (fromLocation === 'current' ? '' : fromLocation.name)}
                   onChange={(e) => setFromQuery(e.target.value)}
                   onFocus={() => { if (blurTimerRef.current) clearTimeout(blurTimerRef.current); blurTimerRef.current = null; setFromSearchFocused(true); setSearchFocused(false); setHighlightedIndex(0); }}
@@ -724,7 +726,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
                   <button
                     type="button"
                     onClick={handleUseCurrentLocation}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-medium text-p2p-blue bg-p2p-blue/10 hover:bg-p2p-blue/20 transition-colors"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[15px] font-medium text-[#007aff] bg-black/[0.06]"
                   >
                     <Navigation size={14} />
                     Use Current Location
@@ -734,7 +736,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
                   type="button"
                   onClick={handleSwapFromTo}
                   disabled={toDestination == null}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 disabled:opacity-50 disabled:pointer-events-none transition-colors"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[15px] font-medium text-black/60 bg-black/[0.06] disabled:opacity-40 disabled:pointer-events-none"
                   aria-label="Swap From and To"
                 >
                   <ArrowUpDown size={14} />
@@ -744,7 +746,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
 
               {/* To */}
               <div className="relative">
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">To</label>
+                <label className="trip-section-label">To</label>
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none z-10 mt-1" size={18} aria-hidden />
                 <input
                   id="plan-trip-to"
@@ -754,7 +756,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
                   aria-label="Destination"
                   aria-expanded={searchFocused}
                   aria-haspopup="listbox"
-                  className="w-full bg-gray-50 border border-gray-200 pl-10 pr-10 py-3 text-base font-medium focus:outline-none focus:ring-2 focus:ring-p2p-blue focus:ring-inset focus:border-p2p-blue rounded-xl placeholder-gray-400"
+                  className="w-full bg-black/[0.04] border-0 pl-10 pr-10 py-3 text-[17px] font-normal focus:outline-none focus:ring-2 focus:ring-[#007aff] focus:ring-inset rounded-xl placeholder-black/25"
                   value={searchFocused ? query : (toDestination?.name ?? '')}
                   onChange={(e) => setQuery(e.target.value)}
                   onFocus={() => { if (blurTimerRef.current) clearTimeout(blurTimerRef.current); blurTimerRef.current = null; setSearchFocused(true); setFromSearchFocused(false); setHighlightedIndex(0); }}
@@ -782,7 +784,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
                 <button
                   type="button"
                   onClick={handlePlanTripFromExpanded}
-                  className="trip-primary w-full py-3 px-4 bg-p2p-blue text-white font-bold text-base rounded-xl hover:bg-p2p-blue/90 transition-colors"
+                  className="trip-primary w-full py-3.5 px-4 bg-[#007aff] text-white font-semibold text-[17px] rounded-xl"
                 >
                   Plan trip
                 </button>
@@ -797,7 +799,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
           <section className="trip-section" aria-labelledby="trip-top-title">
             <div>
               <h3 id="trip-top-title" className="trip-section-title">Top destinations</h3>
-              <ul className="space-y-1" role="listbox" aria-label="Top destinations" aria-activedescendant={selectableItems.length ? `dropdown-option-${highlightedIndex}` : undefined}>
+              <ul className="trip-rows" role="listbox" aria-label="Top destinations" aria-activedescendant={selectableItems.length ? `dropdown-option-${highlightedIndex}` : undefined}>
                 {TOP_DESTINATIONS.map((dest, i) => (
                   <li key={dest.id} role="option" aria-selected={highlightedIndex === i}>
                     <button
@@ -808,12 +810,12 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
                       onMouseEnter={() => setHighlightedIndex(i)}
                       className={`trip-row ${highlightedIndex === i ? 'is-active' : ''}`}
                     >
-                      <MapPin size={18} className="text-gray-400 shrink-0" />
+                      <MapPin size={18} className="text-black/25 shrink-0" />
                       <div className="min-w-0 overflow-hidden">
-                        <div className="font-medium text-gray-900 truncate">{dest.name}</div>
-                        {dest.address && <div className="text-xs text-gray-500 truncate">{dest.address}</div>}
+                        <div className="font-medium text-black truncate">{dest.name}</div>
+                        {dest.address && <div className="text-[13px] text-black/40 truncate">{dest.address}</div>}
                       </div>
-                      <ArrowRight size={16} className="text-gray-300 shrink-0 ml-auto" />
+                      <ArrowRight size={16} className="text-black/20 shrink-0 ml-auto" />
                     </button>
                   </li>
                 ))}
@@ -826,7 +828,7 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
             <div>
               <h3 id="trip-routes-title" className="trip-section-title">Recent and favorite routes</h3>
               {savedRoutes.length > 0 ? (
-                <ul className="space-y-1">
+                <ul className="trip-rows">
                   {savedRoutes.slice(0, 6).map((item) => (
                     <li key={item.id}>
                       <div className="trip-row">
@@ -835,18 +837,18 @@ export const PlanTripView: React.FC<PlanTripViewProps> = ({
                           onClick={() => handleRunSavedRoute(item)}
                           className="flex-1 min-w-0 text-left"
                         >
-                          <div className="font-medium text-gray-900 truncate">
-                            {item.fromName} <ArrowRight size={14} className="inline mx-1 text-gray-400" /> {item.toName}
+                          <div className="font-medium text-black truncate">
+                            {item.fromName} <ArrowRight size={14} className="inline mx-1 text-black/25" /> {item.toName}
                           </div>
-                          <div className="text-xs text-gray-500 truncate">
+                          <div className="text-[13px] text-black/40 truncate">
                             {item.lastRouteLabel ? `Via ${item.lastRouteLabel}` : 'Walk + transit options'} · Used {item.useCount}x
                           </div>
                         </button>
                         <button
                           type="button"
                           onClick={() => handleToggleFavoriteRoute(item.id)}
-                          className={`p-2 rounded-lg transition-colors ${
-                            item.favorite ? 'text-p2p-red bg-p2p-light-red/30' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+                          className={`p-2 rounded-full ${
+                            item.favorite ? 'text-p2p-red bg-p2p-light-red/30' : 'text-black/25'
                           }`}
                           aria-label={item.favorite ? 'Remove from favorite routes' : 'Add to favorite routes'}
                         >

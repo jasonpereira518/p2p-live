@@ -58,10 +58,11 @@ export function StopPopup({ stop, userLocation, nearby = false, onClose, onWalkT
   const emptyMessage = status === 'loading' ? 'Loading arrivals…' : status === 'unavailable' ? 'Live tracking is unavailable. No scheduled arrivals are available for this stop.' : getLiveStatusMessage(status)?.text ?? 'No arrival predictions for this stop right now.';
   return <section className="campus-sheet" aria-label={`${nearby ? 'Nearby' : 'Selected'} stop: ${stop.name}`} onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } }}>
     <div className="campus-sheet-heading">
-      <div className="min-w-0"><div className="campus-eyebrow"><MapPin size={13} aria-hidden="true" />{nearby ? 'Nearby stop' : 'Selected stop'}{walkMin != null && ` · ~${walkMin} min walk`}</div>
+      <div className="min-w-0">
         <h2 ref={heading} tabIndex={-1}>{stop.name}</h2>
+        <div className="campus-eyebrow"><MapPin size={13} aria-hidden="true" />{nearby ? 'Nearby stop' : 'Selected stop'}{walkMin != null && ` · ~${walkMin} min walk`}</div>
       </div>
-      <button type="button" className="campus-close" onClick={onClose} aria-label="Close stop details"><X size={17} /></button>
+      <button type="button" className="campus-close" onClick={onClose} aria-label="Close stop details"><X size={14} /></button>
     </div>
     <div aria-live="polite">
       {arrivals.slice(0, moreTimes ? undefined : 2).map((a, i) => <div className="campus-arrival" key={`${a.routeId}-${a.vehicleId}-${i}`}>

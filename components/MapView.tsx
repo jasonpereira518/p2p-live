@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle2, Circle, Box, Compass, ExternalLink, Footprints, List, LocateFixed, Minus, Plus, SlidersHorizontal, X } from 'lucide-react';
+import { Box, Compass, ExternalLink, Footprints, List, LocateFixed, Minus, Plus, SlidersHorizontal, X } from 'lucide-react';
 import { MapboxMap, type MapCamera } from './MapboxMap';
 import { StopPopup } from './StopPopup';
 import type { Stop, LiveVehicle, Coordinate, Journey, RouteId } from '../types';
@@ -100,10 +100,12 @@ export const MapView: React.FC<MapViewProps> = ({ vehicles, userLocation, userLo
       onSelectBus={bus => { setPicker(null); setListOpen(false); onDismissStop(); onSelectBus(bus); }} onStopCandidates={choose} onMapClick={() => { if (selectedStop || picker || listOpen) closePanel(); }} enable3D={enable3D} centerOnCampusAt={centerOnCampusAt} />
     <div className="campus-toolbar" ref={toolbar} style={{ top: topInset + 12 }}>
       <div className="campus-chips" role="group" aria-label="Visible routes">{ROUTE_IDS.map(id => <button key={id} type="button" className="campus-chip route-filter" data-route={id} aria-pressed={enabled.includes(id)} onClick={() => toggleRoute(id)}>
-        {enabled.includes(id) ? <CheckCircle2 size={14} aria-hidden="true" /> : <Circle size={14} aria-hidden="true" />}
-        <span className="sr-only">{id === 'P2P_EXPRESS' ? 'EX' : 'BH'}</span>{ROUTE_NAMES[id]}<span className="campus-count">{status === 'loading' || status === 'unavailable' ? '—' : vehicles.filter(v => v.routeId === id).length}<span className="sr-only">{status === 'loading' ? ' loading' : status === 'unavailable' ? ' tracking unavailable' : ' reporting buses'}</span></span>
+        <span className="campus-route-tag" style={{ background: id === 'P2P_EXPRESS' ? '#418fc5' : '#c33934' }} aria-hidden="true">{id === 'P2P_EXPRESS' ? 'EX' : 'BH'}</span>
+        <span className="sr-only">{ROUTE_NAMES[id]}</span>
+        <span className="campus-count">{status === 'loading' || status === 'unavailable' ? '—' : vehicles.filter(v => v.routeId === id).length}</span>
+        <span className="sr-only">{status === 'loading' ? ' loading' : status === 'unavailable' ? ' tracking unavailable' : ` ${ROUTE_NAMES[id]}, ${vehicles.filter(v => v.routeId === id).length} reporting buses`}</span>
       </button>)}</div>
-      <p className={`campus-status ${status === 'live' ? 'live' : ''} ${statusMessage?.tone === 'warning' ? 'warning' : ''}`} role="status"><span className="campus-status-dot" />{stateLabel}</p>
+      {stateLabel && <p className={`campus-status ${status === 'live' ? 'live' : ''} ${statusMessage?.tone === 'warning' ? 'warning' : ''}`} role="status"><span className="campus-status-dot" />{stateLabel}</p>}
       {!network && <div className="campus-network-notice">
         <div role="status"><strong>{networkStatus === 'loading' ? 'Loading routes and stops…' : 'Route information unavailable'}</strong>
           {networkStatus === 'unavailable' && <p>We’ll retry automatically. Live bus status is shown separately.</p>}
@@ -127,11 +129,11 @@ export const MapView: React.FC<MapViewProps> = ({ vehicles, userLocation, userLo
     </div>
     {hasSheet && <div ref={sheet} className="campus-sheet-wrap">
       {picker || listOpen ? <section className="campus-sheet" aria-label={picker ? 'Choose boarding stop' : 'Campus stop list'}>
-        <div className="campus-sheet-heading"><div><p className="campus-eyebrow">{picker ? 'Nearby boarding locations' : `${visibleStops.length} stops on visible routes`}</p><h2 ref={panelHeading} tabIndex={-1}>{picker ? 'Choose your stop' : 'Campus stops'}</h2></div><button type="button" className="campus-close" onClick={closePanel} aria-label="Close stop list"><X size={17} /></button></div>
+        <div className="campus-sheet-heading"><div><h2 ref={panelHeading} tabIndex={-1}>{picker ? 'Choose your stop' : 'Campus stops'}</h2><p className="campus-eyebrow">{picker ? 'Nearby boarding locations' : `${visibleStops.length} stops on visible routes`}</p></div><button type="button" className="campus-close" onClick={closePanel} aria-label="Close stop list"><X size={14} /></button></div>
         {(picker ?? [...visibleStops].sort((a, b) => a.name.localeCompare(b.name))).map(stop => <button key={stop.id} type="button" className="campus-picker" onClick={() => selectStop(stop)}>{stop.name}<small>{visibleStops.find(s => s.id === stop.id)?.routeIds.map(id => ROUTE_NAMES[id]).join(' · ')} · Stop {stop.id}</small></button>)}
         {!visibleStops.length && <p className="campus-hint">{!enabled.length ? 'Select a route above to browse its stops.' : networkStatus === 'unavailable' ? 'Route information unavailable. Use Retry above to load stops.' : networkStatus === 'loading' ? 'Loading routes and stops…' : 'No stops available for these routes.'}</p>}
       </section> : activeJourney ? <section className="campus-sheet" aria-label="Active journey">
-        <div className="campus-sheet-heading"><div><p className="campus-eyebrow"><Footprints size={13} />{activeJourney.segments.some(s => s.type === 'bus') ? 'Your journey' : 'Walking directions'}</p><h2 ref={journeyHeading} tabIndex={-1}>{activeJourney.destination.name}</h2></div><button type="button" className="campus-close" aria-label="End journey" onClick={() => { onClearJourney(); camera.current?.focus(); }}><X size={17} /></button></div>
+        <div className="campus-sheet-heading"><div><h2 ref={journeyHeading} tabIndex={-1}>{activeJourney.destination.name}</h2><p className="campus-eyebrow"><Footprints size={13} />{activeJourney.segments.some(s => s.type === 'bus') ? 'Your journey' : 'Walking directions'}</p></div><button type="button" className="campus-close" aria-label="End journey" onClick={() => { onClearJourney(); camera.current?.focus(); }}><X size={14} /></button></div>
         <p className="campus-hint">{activeJourney.totalDurationMin} min{activeJourney.segments.filter(s => s.type === 'bus').map(s => ` · ${s.routeName}`).join('')}</p>
         {activeJourney.segments.some(s => s.steps?.length) && <details className="mt-3 text-xs"><summary className="cursor-pointer py-2">Walking steps</summary><ol className="list-decimal pl-4 space-y-2 mt-2">{activeJourney.segments.flatMap(s => mainWalkingSteps(s.steps)).map((step, i) => <li key={i}>{step.instruction}</li>)}</ol></details>}
       </section> : shownStop && <StopPopup stop={shownStop} userLocation={location} nearby={!selectedStop} onClose={closePanel} onWalkToStop={startWalk} />}

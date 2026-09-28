@@ -331,7 +331,10 @@ async function handleAdminOptimizationSummary(req, body, res) {
 const server = http.createServer((req, res) => {
   const origin = req.headers.origin;
 
-  const isLocal = origin === 'http://localhost:3000';
+  // Vite may fall back to 3001+ when 3000 is busy; allow any localhost port in dev.
+  const isLocal =
+    typeof origin === 'string' &&
+    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
   const isProd = origin === 'https://p2pnow.netlify.app';
   const isPreview = typeof origin === 'string' && /^https:\/\/.*--p2pnow\.netlify\.app$/.test(origin);
 

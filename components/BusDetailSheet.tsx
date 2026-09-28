@@ -92,51 +92,44 @@ export const BusDetailSheet: React.FC<BusDetailSheetProps> = ({ vehicle, stops, 
       }
     }}>
       <div
-        className="absolute inset-0 bg-black/40 pointer-events-auto backdrop-blur-sm transition-opacity"
+        className="absolute inset-0 bg-black/30 pointer-events-auto"
         onClick={onClose}
       />
       <div
-        className="bus-detail-sheet bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl shadow-2xl z-50 pointer-events-auto max-h-[85vh] flex flex-col animate-slide-up sm:m-4"
+        className="bus-detail-sheet w-full sm:max-w-md z-50 pointer-events-auto max-h-[85vh] flex flex-col animate-slide-up sm:m-4"
         ref={sheetRef} role="dialog" aria-modal="true" aria-label={`${vehicle.routeName} bus details`}
         style={{ minHeight: 0 }}
       >
         <div className="shrink-0">
-          <div className="w-full flex justify-center pt-3 pb-1 sm:hidden">
-            <div className="w-12 h-1.5 bg-gray-200 rounded-full" />
+          <div className="w-full flex justify-center pt-2 pb-1 sm:hidden">
+            <div className="w-9 h-[5px] rounded-full bg-black/15" />
           </div>
-          <div className="p-5 pb-0 flex justify-between items-start">
-            <div>
-              <span
-                className={`inline-block px-2 py-0.5 rounded text-xs font-bold mb-2 text-white ${
-                  vehicle.routeId === 'P2P_EXPRESS' ? 'bg-p2p-blue' : 'bg-p2p-red'
-                }`}
-              >
-                {vehicle.routeName}
-              </span>
-              <h2 className="text-2xl font-bold text-gray-900">{vehicle.routeName}</h2>
-              <p className="text-gray-500 text-sm">{vehicle.name}</p>
+          <div className="px-5 pt-2 pb-0 flex justify-between items-start gap-3">
+            <div className="min-w-0">
+              <h2 className="text-[22px] font-bold tracking-tight text-black truncate">{vehicle.routeName}</h2>
+              <p className="text-[15px] text-black/40 mt-0.5">{vehicle.name}</p>
             </div>
             <button
               ref={closeRef}
               onClick={onClose}
-              className="bus-detail-close p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
+              className="bus-detail-close"
               aria-label="Close"
             >
-              <X size={20} className="text-gray-600" />
+              <X size={16} className="text-black/50" />
             </button>
           </div>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto p-5 pt-4" style={{ WebkitOverflowScrolling: 'touch' }}>
-          <div className="bus-detail-summary mb-6 p-4 bg-gray-50 rounded-xl border border-gray-100">
-            <div className="flex items-center gap-3 mb-3">
-              <div className={`w-2 h-2 rounded-full ${vehicle.stale ? 'bg-gray-400' : 'bg-green-500 animate-pulse'}`} />
-              <span className="text-sm font-semibold text-gray-700">
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 pt-4 pb-6" style={{ WebkitOverflowScrolling: 'touch' }}>
+          <div className="bus-detail-summary mb-5 p-4">
+            <div className="flex items-center gap-2.5 mb-3">
+              <div className={`w-2 h-2 rounded-full ${vehicle.stale ? 'bg-[#aeaeb2]' : 'bg-[#34c759]'}`} />
+              <span className="text-[15px] font-medium text-black/60">
                 {vehicle.stale ? (
                   'Location not updating'
                 ) : nextStop ? (
                   <>
-                    En route to <span className="text-gray-900">{nextStop.name}</span>
+                    En route to <span className="text-black font-semibold">{nextStop.name}</span>
                   </>
                 ) : (
                   'Next stop unknown'
@@ -144,25 +137,25 @@ export const BusDetailSheet: React.FC<BusDetailSheetProps> = ({ vehicle, stops, 
               </span>
             </div>
 
-            <div className="flex justify-between items-center pl-5 mb-3">
+            <div className="flex justify-between items-end mb-3">
               <div>
-                <div className="bus-detail-eta text-3xl font-bold text-gray-900">{formatEta(vehicle.nextStopEtaSec)}</div>
-                <div className="text-xs text-gray-400">Estimated arrival</div>
+                <div className="bus-detail-eta text-black">{formatEta(vehicle.nextStopEtaSec)}</div>
+                <div className="text-[13px] text-black/40 mt-0.5">Estimated arrival</div>
               </div>
               {walkToNextStop !== null && (
                 <div className="text-right">
-                  <div className="flex items-center justify-end text-p2p-blue gap-1">
+                  <div className="flex items-center justify-end text-[#007aff] gap-1">
                     <Navigation size={14} />
-                    <span className="font-bold">{walkToNextStop} min</span>
+                    <span className="font-semibold text-[17px] tabular-nums">{walkToNextStop} min</span>
                   </div>
-                  <div className="text-xs text-gray-400">Walk to stop</div>
+                  <div className="text-[13px] text-black/40">Walk to stop</div>
                 </div>
               )}
             </div>
 
             {loadInfo && fullnessMeta && (
               <div>
-                <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                <div className="flex items-center justify-between text-[13px] text-black/40 mb-1.5">
                   <span>Fullness</span>
                   <span className={`font-semibold ${fullnessMeta.textClass}`}>
                     {loadInfo.riders != null && loadInfo.capacity != null
@@ -171,7 +164,7 @@ export const BusDetailSheet: React.FC<BusDetailSheetProps> = ({ vehicle, stops, 
                     ({fullnessMeta.label})
                   </span>
                 </div>
-                <div className="h-2 bg-white rounded-full overflow-hidden border border-gray-200/70">
+                <div className="h-1.5 bg-black/5 rounded-full overflow-hidden">
                   <div
                     className={`h-full rounded-full ${fullnessMeta.barClass}`}
                     style={{ width: `${Math.min(100, loadInfo.percent)}%` }}
@@ -182,31 +175,29 @@ export const BusDetailSheet: React.FC<BusDetailSheetProps> = ({ vehicle, stops, 
           </div>
 
           <div>
-            <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">Upcoming stops</h3>
+            <h3 className="mb-2">Upcoming stops</h3>
             {upcoming.length === 0 ? (
-              <p className="text-sm text-gray-500">No upcoming stop predictions for this bus.</p>
+              <p className="text-[15px] text-black/40">No upcoming stop predictions for this bus.</p>
             ) : (
-              <div className="relative pl-2 space-y-6 before:content-[''] before:absolute before:left-[19px] before:top-2 before:bottom-4 before:w-0.5 before:bg-gray-200">
+              <div className="rounded-2xl bg-[#f2f2f7] overflow-hidden">
                 {upcoming.slice(0, showMore ? FIRST_STOPS + MORE_STOPS : FIRST_STOPS).map((stop, idx) => (
-                  <div key={`${stop.stopId}-${idx}`} className="relative flex items-center justify-between pl-8 group">
-                    <div
-                      className={`absolute left-3 w-4 h-4 rounded-full border-2 border-white shadow-sm z-10 ${
-                        idx === 0 ? 'bg-p2p-blue' : 'bg-gray-300'
-                      }`}
-                    />
-                    <div className="min-w-0 flex-1 pr-2">
-                      <span className={`block text-sm font-medium truncate ${idx === 0 ? 'text-gray-900' : 'text-gray-600'}`}>
+                  <div
+                    key={`${stop.stopId}-${idx}`}
+                    className="flex items-center justify-between gap-3 px-4 py-3 border-b border-black/[0.08] last:border-b-0"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <span className={`block text-[15px] font-medium truncate ${idx === 0 ? 'text-black' : 'text-black/60'}`}>
                         {stop.name}
                       </span>
                       {stop.previousStopName && (
-                        <span className="block text-xs text-gray-400 truncate">
+                        <span className="block text-[13px] text-black/35 truncate mt-0.5">
                           {stop.minutesFromPrevious == null
                             ? `Previous stop: ${stop.previousStopName}`
                             : `${stop.minutesFromPrevious} min after ${stop.previousStopName}`}
                         </span>
                       )}
                     </div>
-                    <span className={`text-sm font-bold whitespace-nowrap ${idx === 0 ? 'text-gray-900' : 'text-gray-400'}`}>
+                    <span className={`text-[15px] font-semibold tabular-nums whitespace-nowrap ${idx === 0 ? 'text-black' : 'text-black/35'}`}>
                       {formatEta(stop.etaSec)}
                     </span>
                   </div>
@@ -218,7 +209,7 @@ export const BusDetailSheet: React.FC<BusDetailSheetProps> = ({ vehicle, stops, 
                 type="button"
                 onClick={() => setShowMore((v) => !v)}
                 aria-expanded={showMore}
-                className="bus-detail-more mt-5 w-full min-h-[44px] flex items-center justify-between px-3 rounded-xl border border-gray-200 bg-gray-50 text-sm font-semibold text-gray-700 hover:bg-gray-100"
+                className="bus-detail-more mt-3 w-full min-h-[44px] flex items-center justify-center gap-2 rounded-xl bg-black/[0.06] text-[15px] font-semibold text-[#007aff]"
               >
                 {showMore ? 'Hide next stops' : 'View next stops'}
                 {showMore ? <ChevronUp size={18} aria-hidden="true" /> : <ChevronDown size={18} aria-hidden="true" />}
