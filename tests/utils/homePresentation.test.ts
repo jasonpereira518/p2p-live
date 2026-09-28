@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { homeDeparture, homeEta, homeServiceSummary, homeUrgency, nearestHomeStop, serviceCountdown } from '../../utils/homePresentation';
+import { homeBoardingStop, homeDeparture, homeEta, homeServiceSummary, homeUrgency, nearestHomeStop, serviceCountdown } from '../../utils/homePresentation';
 import type { Stop, StopArrival } from '../../types';
 
 const afternoon = new Date(2026, 8, 20, 14);
@@ -70,5 +70,35 @@ describe('Home motion states', () => {
     expect(serviceCountdown(new Date(2026, 8, 20, 16, 46))).toBe('2h 14m');
     expect(serviceCountdown(new Date(2026, 8, 20, 18, 25, 30))).toBe('35 min');
     expect(serviceCountdown(new Date(2026, 8, 20, 4, 0))).toBe('15h 0m');
+  });
+});
+describe('Home boarding stop', () => {
+  const location = { lat: 35.9105, lon: -79.0478 };
+  // About 0 m, 330 m and 440 m north of the rider, then one beyond the walking limit.
+  const stops = [
+    { ...location, id: 'baity-only', name: 'Mason Farm' },
+    { lat: 35.9135, lon: -79.0478, id: 'express', name: 'Express stop' },
+    { lat: 35.9145, lon: -79.0478, id: 'express-2', name: 'Farther Express stop' },
+    { lat: 35.9255, lon: -79.0478, id: 'too-far', name: 'Too far' },
+  ] as Stop[];
+  const bus = (etaSec: number): StopArrival => ({ etaSec, routeId: 'P2P_EXPRESS', routeName: 'P2P Express', source: 'live', vehicleId: null });
+  const arrivals = (byStop: Record<string, StopArrival[]>) => (stopId: string) => byStop[stopId] ?? [];
+
+  it('skips a nearer stop with no bus coming for the closest one that has one', () => {
+    const boarding = homeBoardingStop(location, true, stops, arrivals({ express: [bus(600)], 'express-2': [bus(300)] }));
+    expect(boarding?.stop.id).toBe('express');
+    expect(boarding?.walkSec).toBeGreaterThan(200);
+    expect(boarding?.arrivals).toEqual([bus(600)]);
+  });
+  it('keeps the nearest stop when a bus is coming there, even if a farther one is sooner', () => {
+    expect(homeBoardingStop(location, true, stops, arrivals({ 'baity-only': [bus(900)], express: [bus(120)] }))?.stop.id).toBe('baity-only');
+  });
+  it('falls back to the nearest stop when no bus is coming within walking distance', () => {
+    expect(homeBoardingStop(location, true, stops, arrivals({ 'too-far': [bus(300)] }))).toMatchObject({ stop: { id: 'baity-only' }, arrivals: [] });
+  });
+  it('needs an in-area location', () => {
+    expect(homeBoardingStop(location, false, stops, arrivals({}))).toBeNull();
+    expect(homeBoardingStop({ lat: 40.7, lon: -74 }, true, stops, arrivals({}))).toBeNull();
+    expect(homeBoardingStop(location, true, [], arrivals({}))).toBeNull();
   });
 });

@@ -6,7 +6,7 @@ import { getActiveStops } from '../utils/transitSelectors';
 import { getStopArrivals, nextArrivalsByRoute } from '../utils/arrivals';
 import { eligibleCampusLocation } from '../utils/mapPresentation';
 import { getDistanceMeters, getWalkTimeSeconds } from '../utils/geo';
-import { homeDeparture, homeServiceSummary, homeUrgency, nearestHomeStop, serviceCountdown } from '../utils/homePresentation';
+import { homeBoardingStop, homeDeparture, homeServiceSummary, homeUrgency, nearestHomeStop, serviceCountdown } from '../utils/homePresentation';
 import { RollingNumber } from './RollingNumber';
 import { PullToRefresh } from './PullToRefresh';
 import { useStarredTrips, type StarredTrip } from '../hooks/useStarredTrips';
@@ -100,9 +100,13 @@ export function HomeView(props: HomeViewProps) {
   const summary = homeServiceSummary(status, now);
   const StatusIcon = summary.tone === 'warning' ? AlertCircle : summary.tone === 'inactive' ? Clock : Radio;
   const stops = useMemo(() => getActiveStops(network, snapshot), [network, snapshot]);
-  const nearest = useMemo(() => nearestHomeStop(props.location, props.locationResolved, stops), [props.location, props.locationResolved, stops]);
-  const walkSec = nearest ? getWalkTimeSeconds(getDistanceMeters(props.location, nearest)) : 0;
-  const departure = nearest && status !== 'loading' ? homeDeparture(getStopArrivals({ stopId: nearest.id, network, snapshot, status, now, limit: Infinity }), walkSec) : null;
+  const nearestStop = useMemo(() => nearestHomeStop(props.location, props.locationResolved, stops), [props.location, props.locationResolved, stops]);
+  // Once live data is in, board at the closest stop a bus is actually coming to, not just the closest stop.
+  const boarding = status === 'loading' ? null : homeBoardingStop(props.location, props.locationResolved, stops,
+    stopId => getStopArrivals({ stopId, network, snapshot, status, now, limit: Infinity }));
+  const nearest = boarding?.stop ?? nearestStop;
+  const walkSec = boarding?.walkSec ?? (nearest ? getWalkTimeSeconds(getDistanceMeters(props.location, nearest)) : 0);
+  const departure = boarding ? homeDeparture(boarding.arrivals, boarding.walkSec) : null;
   const trackingFailed = status === 'unavailable';
   const refreshAction = { label: refreshing ? 'Refreshing…' : 'Try again', onClick: () => void refresh(), disabled: refreshing };
   const shownPlaces = props.starred.slice(0, 4);
