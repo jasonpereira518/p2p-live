@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { computeTripOptions } from '../../utils/multimodalRouting';
+import { computeTripOptions, getWalkDirections } from '../../utils/multimodalRouting';
 import { getDistanceMeters } from '../../utils/geo';
 import { makeNetwork, makeSnapshot, makeVehicle } from '../fixtures/transit';
 
@@ -39,5 +39,27 @@ describe('computeTripOptions', () => {
   it('explains a missing bus option', async () => {
     expect(await trip(makeSnapshot({ vehicles: [], arrivalsByStop: {} }))).toMatchObject({ bus: null, busUnavailable: 'not-running' });
     expect(await trip(makeSnapshot(), { id: 'far', name: 'Far', lat: 35.95, lon: -79.1 })).toMatchObject({ bus: null, busUnavailable: 'no-stops' });
+  });
+});
+
+describe('getWalkDirections', () => {
+  // Coordinates no other test uses, so the shared cache starts empty for them.
+  const a = { lat: 35.9001, lon: -79.0301 }, b = { lat: 35.9002, lon: -79.0302 };
+  it('reuses a recent walk between the same points', async () => {
+    const fetchMock = vi.mocked(fetch);
+    const first = await getWalkDirections(a, b);
+    const second = await getWalkDirections({ lat: a.lat + 1e-7, lon: a.lon }, b);
+    expect(second).toBe(first);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(Date.now() + 5 * 60 * 1000 + 1);
+    await getWalkDirections(a, b);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+  it('asks again after a failed walk instead of caching the failure', async () => {
+    const c = { lat: 35.9003, lon: -79.0303 };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 503 })));
+    expect(await getWalkDirections(a, c)).toBeNull();
+    await getWalkDirections(a, c);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });

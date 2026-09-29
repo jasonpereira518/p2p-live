@@ -1,6 +1,6 @@
 /**
  * Arrivals for a stop: live GMV predictions when available, otherwise the timetable.
- * Single source for the closest-stop card, stop pop-up and Plan Trip.
+ * Single source for the closest-stop card, stop pop-up, search sheet and trip planning.
  */
 
 import type { ClientLiveStatus, LiveSnapshot, RouteId, StopArrival, TransitNetwork } from '../types';

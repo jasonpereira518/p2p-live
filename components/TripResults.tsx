@@ -1,9 +1,8 @@
-/** Plan Trip results: walk vs bus side by side, with the chosen option's logistics. */
+/** Trip results in the search sheet: walk vs bus side by side, with the chosen option's logistics. */
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertCircle, ArrowLeft, ArrowUpRight, Bus, Clock, Footprints, RefreshCw } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, Bus, Clock, Footprints, RefreshCw } from 'lucide-react';
 import type { Journey, JourneySegment } from '../types';
-import type { PlannedTrip } from './PlanTripView';
-import { busTripTimes, busUnavailableMessage, journeySec, mainWalkingSteps, walkingMeters, type TripMode } from '../utils/tripPlanning';
+import { busTripTimes, busUnavailableMessage, journeySec, mainWalkingSteps, walkingMeters, type PlannedTrip, type TripMode } from '../utils/tripPlanning';
 import { formatDistanceImperial } from '../utils/format';
 import { RollingNumber } from './RollingNumber';
 import { useTransit } from '../context/TransitProvider';
@@ -16,7 +15,6 @@ interface TripResultsProps {
   refreshing: boolean;
   onModeChange: (mode: TripMode) => void;
   onStart: () => void;
-  onNewSearch: () => void;
   onRefresh: () => void;
 }
 
@@ -41,8 +39,8 @@ function Directions({ segment }: { segment?: JourneySegment }) {
   </details>;
 }
 
-export function TripResults({ trip, stopNameById, refreshing, onModeChange, onStart, onNewSearch, onRefresh }: TripResultsProps) {
-  const { options, mode, request } = trip;
+export function TripResults({ trip, stopNameById, refreshing, onModeChange, onStart, onRefresh }: TripResultsProps) {
+  const { options, mode, destination } = trip;
   const [now, setNow] = useState(() => new Date());
   useEffect(() => { const timer = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(timer); }, []);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -64,7 +62,6 @@ export function TripResults({ trip, stopNameById, refreshing, onModeChange, onSt
   const fastest: TripMode | null = walk && bus && Math.abs(journeySec(walk) - journeySec(bus)) >= 60
     ? (journeySec(walk) < journeySec(bus) ? 'walk' : 'bus') : null;
   const selected = mode === 'bus' ? bus : walk;
-  const destination = request.destination;
   // The option bars race at one speed, so the faster trip finishes first and wins the badge.
   const slowest = Math.max(walk ? journeySec(walk) : 0, bus ? journeySec(bus) : 0);
   const raceSec = (journey: Journey) => journeySec(journey) / slowest * 1.2;
@@ -95,10 +92,9 @@ export function TripResults({ trip, stopNameById, refreshing, onModeChange, onSt
   };
 
   return <div className="trip-view trip-results">
-    <button type="button" className="trip-back" onClick={onNewSearch}><ArrowLeft aria-hidden="true" />New search</button>
     <h2 ref={heading} tabIndex={-1} className="trip-dest">{destination.name}</h2>
     {destination.address && destination.address !== destination.name && <p className="trip-sub">{destination.address}</p>}
-    <p className="trip-sub">From {request.start === 'current' ? 'your location' : request.start.name}</p>
+    <p className="trip-sub">From your location</p>
 
     <div className="trip-options" role="group" aria-label="Ways to get there">{optionCard('walk', walk)}{optionCard('bus', bus)}</div>
     {!bus && <p className="trip-compare">{busUnavailableMessage(options.busUnavailable)}</p>}
