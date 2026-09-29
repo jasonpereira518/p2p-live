@@ -23,10 +23,12 @@ const BUS_SCALES: [number, number][] = [[13, .625], [15, .9], [18, 1.45]];
 const FLOW_DASH = 2, FLOW_GAP = 22, FLOW_STEP = .5, FLOW_FRAME_MS = 120;
 /** Flowing lines and the live-bus pulse only show when zoomed in close. */
 const DETAIL_ZOOM = 16;
-/** Longest frame the bus animation will step at once, e.g. after the tab was in the background. */
-const MAX_FRAME_SEC = .1;
+/** Longest gap between frames the bus animation steps through; after a longer one (a background tab) buses jump or race to where they are. */
+const MAX_FRAME_SEC = 2;
 /** Recent snapshots used to estimate the client-minus-server clock offset. */
 const CLOCK_SAMPLES = 10;
+/** The blue dot glides to each new GPS reading over this long (phones send about one a second). */
+const USER_GLIDE_MS = 1000;
 const FLOW_SEQUENCE = Array.from({ length: (FLOW_DASH + FLOW_GAP) / FLOW_STEP }, (_, i) => shiftedDashArray(FLOW_DASH, FLOW_GAP, i * FLOW_STEP));
 function busScale(zoom: number): number {
   const i = BUS_SCALES.findIndex(([z]) => z >= zoom);
@@ -97,6 +99,8 @@ export const MapboxMap = forwardRef<MapCamera, MapboxMapProps>(function MapboxMa
   const initialFramed = useRef(false);
   const markers = useRef(new Map<string, { marker: mapboxgl.Marker; element: HTMLButtonElement; motion: BusMotion | null; drawn: BusMotion | null; label: string }>());
   const clockOffsets = useRef<number[]>([]);
+  /** The rider's dot: where it is drawn and the glide toward the newest reading. */
+  const user = useRef<{ marker: mapboxgl.Marker; from: LngLat; to: LngLat; start: number } | null>(null);
   const mapStops = useMemo(() => mergeMapStops(props.routeStops, props.enabledRouteIds), [props.routeStops, props.enabledRouteIds]);
   const chunks = useMemo(() => ({
     P2P_EXPRESS: props.routeLines.P2P_EXPRESS.length > 1 ? [{ coordinates: props.routeLines.P2P_EXPRESS, offset: 0 }] : [],
@@ -144,7 +148,7 @@ export const MapboxMap = forwardRef<MapCamera, MapboxMapProps>(function MapboxMa
       setError(null);
       map.addImage('stop-selected', stopSprite(), { pixelRatio: 2 });
       for (const id of ROUTE_IDS) map.addImage(`route-arrow-${id}`, arrowDotSprite(ROUTE_COLORS[id]), { pixelRatio: 4 });
-      for (const id of ['routes', 'arrows', 'stops', 'user', 'journey', 'destination']) map.addSource(id, { type: 'geojson', data: empty() });
+      for (const id of ['routes', 'arrows', 'stops', 'journey', 'destination']) map.addSource(id, { type: 'geojson', data: empty() });
       map.addLayer({ id: 'routes-casing', type: 'line', source: 'routes', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#fff', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 6, 16, 8] } });
       map.addLayer({ id: 'routes-line', type: 'line', source: 'routes', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 4, 16, 6], 'line-opacity': .95 } });
       map.addLayer({ id: 'routes-flow', type: 'line', source: 'routes', minzoom: DETAIL_ZOOM, layout: { 'line-join': 'round' }, paint: { 'line-color': '#fff', 'line-opacity': .55, 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 1.5, 16, 2.5], 'line-dasharray': FLOW_SEQUENCE[0] } });
@@ -160,8 +164,6 @@ export const MapboxMap = forwardRef<MapCamera, MapboxMapProps>(function MapboxMa
       map.addLayer({ id: 'stops-mark', type: 'symbol', source: 'stops', filter: ['==', ['get', 'selected'], false], layout: { 'icon-image': 'stop-selected', 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-size': 18 / 30 }, paint: { 'icon-opacity': ['get', 'opacity'] } });
       map.addLayer({ id: 'stop-labels', type: 'symbol', source: 'stops', minzoom: 16, filter: ['==', ['get', 'selected'], false], layout: { 'text-field': ['get', 'name'], 'text-font': font, 'text-size': 11, 'text-anchor': 'top', 'text-offset': [0, .9], 'text-padding': 8, 'text-max-width': 10 }, paint: { 'text-color': '#4b6573', 'text-halo-color': '#fff', 'text-halo-width': 2, 'text-opacity': ['get', 'opacity'] } });
       map.addLayer({ id: 'selected-stop', type: 'symbol', source: 'stops', filter: ['==', ['get', 'selected'], true], layout: { 'icon-image': 'stop-selected', 'icon-size': 27 / 30, 'icon-allow-overlap': true, 'text-field': ['get', 'name'], 'text-font': font, 'text-size': 12, 'text-anchor': 'bottom', 'text-offset': [0, -1.65], 'text-max-width': 12, 'text-allow-overlap': true }, paint: { 'text-color': '#203f50', 'text-halo-color': '#fff', 'text-halo-width': 3 } });
-      map.addLayer({ id: 'user-halo', type: 'circle', source: 'user', paint: { 'circle-radius': 13, 'circle-color': '#367eec', 'circle-opacity': .15 } });
-      map.addLayer({ id: 'user-dot', type: 'circle', source: 'user', paint: { 'circle-radius': 6, 'circle-color': '#367eec', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2.5 } });
       map.addLayer({ id: 'destination-mark', type: 'symbol', source: 'destination', layout: { 'icon-image': 'stop-selected', 'icon-size': 27 / 30, 'icon-allow-overlap': true, 'text-field': ['get', 'name'], 'text-font': font, 'text-size': 12, 'text-anchor': 'bottom', 'text-offset': [0, -1.65], 'text-max-width': 12 }, paint: { 'text-color': '#203f50', 'text-halo-color': '#fff', 'text-halo-width': 3 } });
       map.addLayer({ id: 'campus-buildings-3d', type: 'fill-extrusion', source: 'composite', 'source-layer': 'building', minzoom: 14, layout: { visibility: 'none' }, paint: { 'fill-extrusion-color': '#d8ddcf', 'fill-extrusion-height': ['get', 'height'], 'fill-extrusion-base': ['get', 'min_height'], 'fill-extrusion-opacity': .65 } }, 'routes-casing');
       setReady(true);
@@ -182,7 +184,7 @@ export const MapboxMap = forwardRef<MapCamera, MapboxMapProps>(function MapboxMa
     return () => {
       disposed = true; resize.disconnect();
       for (const entry of markers.current.values()) entry.marker.remove();
-      markers.current.clear(); map.remove(); mapRef.current = null;
+      markers.current.clear(); user.current?.marker.remove(); user.current = null; map.remove(); mapRef.current = null;
     };
   }, [token]);
 
@@ -224,7 +226,6 @@ export const MapboxMap = forwardRef<MapCamera, MapboxMapProps>(function MapboxMa
     const map = mapRef.current; if (!ready || !map?.getSource('routes')) return;
     const set = (id: string, features: GeoJSON.Feature[]) => (map.getSource(id) as GeoJSONSource).setData(collection(features));
     set('stops', mapStops.map(s => point([s.lon, s.lat], { id: s.id, name: s.name, selected: s.id === props.highlightedStopId, opacity: props.activeJourney && s.id !== props.highlightedStopId ? .35 : 1 })));
-    set('user', props.userLocation ? [point([props.userLocation.lon, props.userLocation.lat])] : []);
     // Never fabricate a straight walking line when the directions request failed.
     set('journey', (props.activeJourney?.segments ?? []).flatMap(seg => {
       const geometry = seg.type === 'walk' ? seg.geometry : seg.busSegmentGeometry;
@@ -261,6 +262,21 @@ export const MapboxMap = forwardRef<MapCamera, MapboxMapProps>(function MapboxMa
       props.routeArrows[id].map(a => point(a.coordinates, { icon: `route-arrow-${id}`, rotate: a.bearing - 90, shifted: id === 'BAITY_HILL' && expressShown && a.shared })))));
   }, [ready, props.routeArrows, props.enabledRouteIds, props.activeJourney]);
 
+  // The rider's dot is HTML so it can glide between GPS readings in the frame loop below.
+  useEffect(() => {
+    const map = mapRef.current; if (!map || !ready) return;
+    const location = props.userLocation;
+    if (!location) { user.current?.marker.remove(); user.current = null; return; }
+    const to: LngLat = [location.lon, location.lat];
+    if (!user.current) {
+      const element = document.createElement('div'); element.className = 'campus-user'; element.setAttribute('aria-hidden', 'true');
+      user.current = { marker: new mapboxgl.Marker({ element, anchor: 'center' }).setLngLat(to).addTo(map), from: to, to, start: 0 };
+      return;
+    }
+    const drawn = user.current.marker.getLngLat();
+    user.current = { ...user.current, from: [drawn.lng, drawn.lat], to, start: performance.now() };
+  }, [ready, props.userLocation]);
+
   useEffect(() => {
     // The server caches the feed, so a snapshot can arrive a few seconds after it was read;
     // the smallest recent gap is the closest to the true clock difference.
@@ -278,6 +294,12 @@ export const MapboxMap = forwardRef<MapCamera, MapboxMapProps>(function MapboxMa
       const dt = Math.min(Math.max(time - last, 0) / 1000, MAX_FRAME_SEC); last = time;
       const p = latest.current, now = Date.now();
       const offset = clockOffsets.current.length ? Math.min(...clockOffsets.current) : null;
+      const glide = user.current;
+      if (glide && glide.start) {
+        const t = reducedMotion.matches ? 1 : Math.min(1, (time - glide.start) / USER_GLIDE_MS);
+        glide.marker.setLngLat([glide.from[0] + (glide.to[0] - glide.from[0]) * t, glide.from[1] + (glide.to[1] - glide.from[1]) * t]);
+        if (t === 1) glide.start = 0;
+      }
       const visible = p.vehicles.filter(v => p.enabledRouteIds.includes(v.routeId));
       for (const [id, entry] of markers.current) if (!visible.some(v => v.id === id)) { entry.marker.remove(); markers.current.delete(id); }
       for (const v of visible) {

@@ -20,14 +20,25 @@ if (params.has('beforeService') || params.has('duringService')) {
 }
 const geo = params.get('geo') ?? 'campus';
 const demoEtaSec = Number(params.get('eta') ?? 120);
+const position = () => ({ coords: { latitude: geo === 'outside' ? 40.71 : 35.9105, longitude: geo === 'outside' ? -74.0 : -79.0478, accuracy: 10 }, timestamp: Date.now() });
+const denied = { code: 1, PERMISSION_DENIED: 1 };
+const watches = new Map<number, ReturnType<typeof setInterval>>();
+let watchIds = 0;
 Object.defineProperty(navigator, 'geolocation', { configurable: true, value: {
   getCurrentPosition(success, failure) {
     if (geo === 'loading') return;
-    queueMicrotask(() => geo === 'denied' ? failure({ code: 1 }) : success({ coords: {
-      latitude: geo === 'outside' ? 40.71 : 35.9105,
-      longitude: geo === 'outside' ? -74.0 : -79.0478,
-    } }));
+    queueMicrotask(() => geo === 'denied' ? failure(denied) : success(position()));
   },
+  // Phones send a new position about once a second while the page is open.
+  watchPosition(success, failure) {
+    const id = ++watchIds;
+    if (geo === 'loading') return id;
+    const send = () => geo === 'denied' ? failure?.(denied) : success(position());
+    queueMicrotask(send);
+    if (geo !== 'denied') watches.set(id, setInterval(send, 1000));
+    return id;
+  },
+  clearWatch(id) { clearInterval(watches.get(id)); watches.delete(id); },
 } });
 const originalFetch = window.fetch.bind(window);
 let networkAttempts = 0;

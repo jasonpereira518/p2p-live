@@ -16,3 +16,7 @@
 .campus-network-notice>div{flex:1;min-width:0}.campus-network-notice strong{font-weight:600}.campus-network-notice p{margin-top:4px;color:var(--campus-muted)}
 .campus-network-notice button{min-height:44px;flex-shrink:0;padding:8px 12px;border-radius:8px;background:var(--campus-blue);color:white;font-weight:600}.campus-network-notice button:disabled{background:#e7edef;color:#526772}
 .campus-more{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:44px;margin-top:6px;padding:0 12px;border:1px solid var(--campus-border);border-radius:10px;background:#f6f9fb;color:#265576;font-size:13px;font-weight:600}.campus-more:hover{background:#eef4f8}
+/* The rider: a blue dot with a soft halo, drawn above the buses and never in the way of tapping them. */
+.campus-user.mapboxgl-marker{position:absolute;top:0;left:0;z-index:3}
+.campus-user{width:26px;height:26px;border-radius:50%;background:#367eec26;pointer-events:none}
+.campus-user::after{content:'';position:absolute;left:50%;top:50%;width:17px;height:17px;margin:-8.5px 0 0 -8.5px;box-sizing:border-box;border:2.5px solid #fff;border-radius:50%;background:#367eec;box-shadow:0 1px 3px #0003}
