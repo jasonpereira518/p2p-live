@@ -1,36 +1,25 @@
-/**
- * Small API server: live transit (GMV), Mapbox geocoding/walking, Gemini summaries.
- * GEMINI_API_KEY / MAPBOX_TOKEN must be set in environment; never exposed to client.
- */
+/** Public rider API: GMV transit data plus Mapbox search and walking directions. */
 
-if (process.env.NODE_ENV !== "production") {
-  require("dotenv").config();
+if (process.env.NODE_ENV !== 'production') {
+  const dotenv = require('dotenv');
+  // Vite already reads .env.local. Load that same local file for the Node API first,
+  // then accept .env as a lower-priority legacy fallback.
+  dotenv.config({ path: '.env.local', quiet: true });
+  dotenv.config({ quiet: true });
 }
 
 const http = require('http');
 const { createGmvClient } = require('./gmv/client.cjs');
 const { createGmvService } = require('./gmv/service.cjs');
 
-const PORT = process.env.PORT || process.env.OPS_API_PORT || 3001;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
+const PORT = process.env.PORT || 3001;
 const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN;
 const GMV_RTPI_API_KEY = process.env.GMV_RTPI_API_KEY;
-// Ops dashboard endpoints (diagnostics, Gemini summaries) are off unless ENABLE_OPS_API=true,
-// matching the rider-only frontend build (VITE_ENABLE_OPS).
-const OPS_API_ENABLED = process.env.ENABLE_OPS_API === 'true';
-const gmv = createGmvService({ client: createGmvClient({ apiKey: GMV_RTPI_API_KEY }) });
-const CACHE_TTL_MS = 60 * 1000; // 60 seconds
-const WALK_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+const defaultGmvService = createGmvService({ client: createGmvClient({ apiKey: GMV_RTPI_API_KEY }) });
+const WALK_CACHE_TTL_MS = 15 * 60 * 1000;
 
-let walkCache = Object.create(null);
-
-// Lightweight in-process diagnostics counters (reset on server restart).
-let failedLlmCalls = 0;
-let directionsFailures = 0;
-
-function roundCoord(c, decimals = 5) {
-  return [Number(c[0].toFixed(decimals)), Number(c[1].toFixed(decimals))];
+function roundCoord(coord, decimals = 5) {
+  return [Number(coord[0].toFixed(decimals)), Number(coord[1].toFixed(decimals))];
 }
 
 function walkCacheKey(from, to) {
@@ -39,498 +28,173 @@ function walkCacheKey(from, to) {
   return `${a[0]},${a[1]}-${b[0]},${b[1]}`;
 }
 
-async function fetchMapboxWalking(fromLngLat, toLngLat) {
-  if (!MAPBOX_TOKEN) throw new Error('MAPBOX_TOKEN is not set');
-  const coords = `${fromLngLat[0]},${fromLngLat[1]};${toLngLat[0]},${toLngLat[1]}`;
-  const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${coords}?geometries=geojson&overview=full&steps=true&access_token=${encodeURIComponent(MAPBOX_TOKEN)}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Mapbox Directions ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  const route = data.routes && data.routes[0];
-  if (!route || !route.geometry || !route.geometry.coordinates) throw new Error('Invalid Mapbox walking response');
-  const steps = (route.legs && route.legs[0] && route.legs[0].steps) ? route.legs[0].steps.map((s) => ({
-    instruction: (s.maneuver && s.maneuver.instruction) ? s.maneuver.instruction : 'Continue',
-    distanceMeters: s.distance != null ? s.distance : 0,
-    durationSec: s.duration != null ? s.duration : 0,
-  })) : [];
-  return {
-    durationSec: route.duration != null ? route.duration : 0,
-    distanceMeters: route.distance != null ? route.distance : 0,
-    geometry: route.geometry,
-    steps,
-  };
-}
+function createApiServer({ gmvService = defaultGmvService, mapboxToken = MAPBOX_TOKEN } = {}) {
+  const walkCache = Object.create(null);
 
-async function handleWalkDirections(fromLngLat, toLngLat, res) {
-  const key = walkCacheKey(fromLngLat, toLngLat);
-  const cached = walkCache[key];
-  if (cached && Date.now() - cached.at < WALK_CACHE_TTL_MS) {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(cached.payload));
-    return;
+  async function fetchMapboxWalking(fromLngLat, toLngLat) {
+    if (!mapboxToken) throw new Error('MAPBOX_TOKEN is not set');
+    const coords = `${fromLngLat[0]},${fromLngLat[1]};${toLngLat[0]},${toLngLat[1]}`;
+    const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${coords}?geometries=geojson&overview=full&steps=true&access_token=${encodeURIComponent(mapboxToken)}`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Mapbox Directions ${response.status}: ${await response.text()}`);
+    const data = await response.json();
+    const route = data.routes && data.routes[0];
+    if (!route || !route.geometry || !route.geometry.coordinates) throw new Error('Invalid Mapbox walking response');
+    const steps = route.legs?.[0]?.steps?.map((step) => ({
+      instruction: step.maneuver?.instruction || 'Continue',
+      distanceMeters: step.distance ?? 0,
+      durationSec: step.duration ?? 0,
+    })) || [];
+    return {
+      durationSec: route.duration ?? 0,
+      distanceMeters: route.distance ?? 0,
+      geometry: route.geometry,
+      steps,
+    };
   }
-  try {
-    const payload = await fetchMapboxWalking(fromLngLat, toLngLat);
-    walkCache[key] = { payload, at: Date.now() };
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(payload));
-  } catch (err) {
-    console.error('Mapbox walk directions error:', err.message);
-    directionsFailures += 1;
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: err.message }));
-  }
-}
 
-let summaryCache = null;
-let cacheKey = null;
-
-function hashComplaints(complaints) {
-  const str = JSON.stringify(complaints.map((c) => ({ id: c.id, category: c.category, notes: c.notes })));
-  let h = 0;
-  for (let i = 0; i < str.length; i++) {
-    h = (h << 5) - h + str.charCodeAt(i);
-    h |= 0;
-  }
-  return String(h);
-}
-
-async function generateSummaryWithGemini(complaints) {
-  if (!GEMINI_API_KEY) {
-    throw new Error('GEMINI_API_KEY is not set');
-  }
-  // Import Gemini SDK dynamically so this file can stay CommonJS.
-  const { GoogleGenerativeAI } = await import('@google/generative-ai');
-  const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
-
-  const prompt = `You are an operations analyst for a campus late-night bus service.
-
-Summarize the following transit complaints into:
-- Key recurring issues (grouped by category such as GPS issues, overcrowding, off-route, maintenance)
-- The single most urgent problem for tonight
-- 2–4 concrete operational focus areas for the next shift (very specific actions)
-
-Constraints:
-- Use short sections with clear labels, but do NOT use markdown headings or bold (no **, ##, etc.).
-- Use simple bullet lines starting with \"- \" when listing items.
-- Keep the summary between 150 and 250 words.
-
-Complaints (JSON array):
-${JSON.stringify(complaints, null, 0)}
-
-Respond with plain text only.`;
-
-  const result = await model.generateContent(prompt);
-  const response = await result.response;
-  const text = response.text();
-  if (!text || !text.trim()) throw new Error('Empty or invalid Gemini response');
-  return text.trim();
-}
-
-async function generateOptimizationSuggestionsWithGemini(metrics) {
-  if (!GEMINI_API_KEY) {
-    throw new Error('GEMINI_API_KEY is not set');
-  }
-  const { GoogleGenerativeAI } = await import('@google/generative-ai');
-  const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
-
-  const prompt = `You are a transit optimization expert helping tune a campus late-night shuttle system.
-
-Based on the following campus transit performance metrics, provide actionable optimization suggestions.
-When possible, quantify the estimated improvement percentage (impactPercent) using the metrics provided.
-
-Focus areas:
-- average wait time
-- walk distance / access to stops
-- congestion at peak stops
-- operational efficiency and reliability
-
-Return ONLY a valid JSON array (no backticks, no markdown, no extra text) with the exact shape:
-[
-  {
-    "title": "Short, action-oriented recommendation",
-    "impactPercent": 11,
-    "category": "Efficiency | Walk Time | Congestion | Reliability",
-    "detail": "1–3 sentences explaining what to change and why. Mention which metric(s) it improves."
-  }
-]
-
-Rules:
-- Provide 4–8 suggestions.
-- impactPercent should be a number between 1 and 25.
-- category must be exactly one of: Efficiency, Walk Time, Congestion, Reliability.
-
-Metrics JSON:
-${JSON.stringify(metrics, null, 0)}
-`;
-
-  const result = await model.generateContent(prompt);
-  const response = await result.response;
-  const text = response.text();
-  if (!text || !text.trim()) throw new Error('Empty or invalid Gemini response');
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch (e) {
-    throw new Error('Gemini optimization response was not valid JSON');
-  }
-  if (!Array.isArray(parsed) || parsed.length === 0) {
-    throw new Error('Gemini optimization response was empty');
-  }
-  return parsed;
-}
-
-function buildFallbackComplaintsSummary(complaints) {
-  if (!complaints || complaints.length === 0) {
-    return 'There are currently no active complaints in the system. Continue normal operations and monitor for any new reports from drivers or riders.';
-  }
-  const byCategory = {};
-  let newestTs = 0;
-  let newest = null;
-  for (const c of complaints) {
-    const cat = c.category || 'Other';
-    byCategory[cat] = (byCategory[cat] || 0) + 1;
-    const ts = Date.parse(c.timestamp || '');
-    if (!Number.isNaN(ts) && ts > newestTs) {
-      newestTs = ts;
-      newest = c;
+  async function handleWalkDirections(fromLngLat, toLngLat, res) {
+    const key = walkCacheKey(fromLngLat, toLngLat);
+    const cached = walkCache[key];
+    if (cached && Date.now() - cached.at < WALK_CACHE_TTL_MS) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(cached.payload));
+      return;
     }
-  }
-  const total = complaints.length;
-  const parts = [];
-  parts.push(`There are ${total} active complaints in the last shift.`);
-  const cats = Object.keys(byCategory)
-    .sort((a, b) => byCategory[b] - byCategory[a])
-    .map((cat) => `- ${cat}: ${byCategory[cat]} issue(s)`);
-  if (cats.length) {
-    parts.push('');
-    parts.push('Key categories:');
-    parts.push(...cats);
-  }
-  if (newest) {
-    parts.push('');
-    parts.push(`Most recent issue appears on ${new Date(newest.timestamp).toLocaleString()} on route ${newest.route} (bus ${newest.busId}): ${newest.category} — ${newest.title}.`);
-  }
-  parts.push('');
-  parts.push('Operational focus for tonight:');
-  parts.push('- Monitor buses with recent GPS or tracking issues and verify backup displays before departure.');
-  parts.push('- Watch for overcrowding at Student Union and key late-night stops; consider short-term reinforcements if patterns persist.');
-  parts.push('- Ensure maintenance follows up on any safety-related items (door sensors, braking, lighting) before the next high-demand window.');
-  return parts.join('\n');
-}
-
-async function handleComplaintsSummary(req, body, res) {
-  const complaints = body?.complaints ?? [];
-  const key = hashComplaints(complaints);
-  if (summaryCache && cacheKey === key && Date.now() - summaryCache.generatedAt < CACHE_TTL_MS) {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(summaryCache));
-    return;
-  }
-  try {
-    const summaryMarkdown = await generateSummaryWithGemini(complaints);
-    const payload = {
-      summaryMarkdown,
-      generatedAtISO: new Date().toISOString(),
-      model: GEMINI_MODEL,
-    };
-    summaryCache = { ...payload, generatedAt: Date.now() };
-    cacheKey = key;
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(payload));
-  } catch (err) {
-    console.error('Complaints summary error:', err.message);
-    failedLlmCalls += 1;
-    // Fall back to a simple server-generated summary so UI still shows something.
-    const fallback = buildFallbackComplaintsSummary(complaints);
-    const payload = {
-      summaryMarkdown: fallback,
-      generatedAtISO: new Date().toISOString(),
-      model: 'fallback',
-    };
-    summaryCache = { ...payload, generatedAt: Date.now() };
-    cacheKey = key;
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(payload));
-  }
-}
-
-function buildFallbackOptimizationSuggestions(metrics) {
-  const suggestions = [];
-  const avgWait = metrics?.optimization?.avgWaitTimeMin ?? 6;
-  const avgWalk = metrics?.optimization?.avgWalkTimeMin ?? 5;
-  const expressEff = metrics?.optimization?.routeEfficiencyScore?.['P2P Express'] ?? 80;
-  const baityEff = metrics?.optimization?.routeEfficiencyScore?.['Baity Hill'] ?? 78;
-  const mostCongested = metrics?.optimization?.mostCongestedStop || 'Student Union';
-  const mostUnderutilized = metrics?.optimization?.mostUnderutilizedStop || 'Baity Hill Community';
-
-  if (avgWait > 5) {
-    suggestions.push({
-      title: 'Re-balance buses during peak union departures',
-      impactPercent: 10,
-      category: 'Efficiency',
-      detail:
-        'Shift one Baity Hill run into the highest-demand P2P Express window to cut average wait time at the Student Union by roughly 8–12%.',
-    });
-  }
-  if (avgWalk > 4) {
-    suggestions.push({
-      title: 'Add a micro-stop near central campus housing',
-      impactPercent: 9,
-      category: 'Walk Time',
-      detail:
-        'Introduce a small, signed boarding location between Rams Head and the Union to shorten walk distance for south-campus riders by about one block.',
-    });
-  }
-  suggestions.push({
-    title: 'Tighten Baity Hill schedule around late-night clinic discharge',
-    impactPercent: 7,
-    category: 'Congestion',
-    detail:
-      `Align one Baity Hill loop departure with the top-of-hour clinic release to reduce standing loads at ${mostCongested} and smooth boardings.`,
-  });
-  if (expressEff > baityEff) {
-    suggestions.push({
-      title: 'Trim low-yield Baity Hill loop beyond underutilized stop',
-      impactPercent: 5,
-      category: 'Efficiency',
-      detail:
-        `Evaluate whether the segment beyond ${mostUnderutilized} can be shortened or served every other loop to save 2–4 minutes per Baity Hill cycle.`,
-    });
-  }
-  return suggestions;
-}
-
-async function handleAdminOptimizationSummary(req, body, res) {
-  const metrics = body?.metrics ?? body ?? {};
-  try {
-    const suggestions = await generateOptimizationSuggestionsWithGemini(metrics);
-    const payload = {
-      suggestions,
-      generatedAtISO: new Date().toISOString(),
-      model: GEMINI_MODEL,
-    };
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(payload));
-  } catch (err) {
-    console.error('Admin optimization summary error:', err.message);
-    failedLlmCalls += 1;
-    const fallbackSuggestions = buildFallbackOptimizationSuggestions(metrics);
-    const payload = {
-      suggestions: fallbackSuggestions,
-      generatedAtISO: new Date().toISOString(),
-      model: 'fallback',
-    };
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(payload));
-  }
-}
-
-const server = http.createServer((req, res) => {
-  const origin = req.headers.origin;
-
-  // Vite may fall back to 3001+ when 3000 is busy; allow any localhost port in dev.
-  const isLocal =
-    typeof origin === 'string' &&
-    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
-  const isProd = origin === 'https://p2pnow.netlify.app';
-  const isPreview = typeof origin === 'string' && /^https:\/\/.*--p2pnow\.netlify\.app$/.test(origin);
-
-  if (isLocal || isProd || isPreview) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204);
-    res.end();
-    return;
-  }
-  
-  if (req.url === "/healthz" && req.method === "GET") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ ok: true }));
-    return;
-  }
-
-  if (req.url === "/" && req.method === "GET") {
-    res.writeHead(200, { "Content-Type": "text/plain" });
-    res.end("P2P Live API is running. Try /healthz");
-    return;
-  }
-
-  const pathname = (req.url || '').split('?')[0];
-
-  if (pathname === '/api/live/network' && req.method === 'GET') {
-    gmv
-      .getNetwork()
-      .then((network) => {
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' });
-        res.end(JSON.stringify(network));
-      })
-      .catch((err) => {
-        console.error('GMV network error:', err.message);
-        res.writeHead(503, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Transit network unavailable' }));
-      });
-    return;
-  }
-
-  if (pathname === '/api/live/snapshot' && req.method === 'GET') {
-    gmv
-      .getSnapshot()
-      .then((snapshot) => {
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-        res.end(JSON.stringify(snapshot));
-      })
-      .catch((err) => {
-        console.error('GMV snapshot error:', err.message);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Snapshot failed' }));
-      });
-    return;
-  }
-
-  if (OPS_API_ENABLED && req.url === '/api/admin/diagnostics' && req.method === 'GET') {
-    const mem = process.memoryUsage();
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(
-      JSON.stringify({
-        env: {
-          nodeEnv: process.env.NODE_ENV || 'development',
-          mapboxTokenConfigured: !!MAPBOX_TOKEN,
-          geminiKeyConfigured: !!GEMINI_API_KEY,
-          geminiModel: GEMINI_MODEL,
-          gmvKeyConfigured: !!GMV_RTPI_API_KEY,
-        },
-        gmv: gmv.diagnostics(),
-        cache: {
-          walkCacheEntries: Object.keys(walkCache || {}).length,
-        },
-        errors: {
-          failedLlmCalls,
-          directionsFailures,
-        },
-        memory: {
-          rssMb: Math.round(mem.rss / 1024 / 1024),
-          heapUsedMb: Math.round(mem.heapUsed / 1024 / 1024),
-          heapTotalMb: Math.round(mem.heapTotal / 1024 / 1024),
-        },
-        process: {
-          pid: process.pid,
-          uptimeSec: Math.round(process.uptime()),
-          node: process.version,
-        },
-      })
-    );
-    return;
-  }
-
-  if (OPS_API_ENABLED && req.url === '/api/ops/complaints/summary' && req.method === 'POST') {
-    let body = '';
-    req.on('data', (chunk) => { body += chunk; });
-    req.on('end', () => {
-      try {
-        const parsed = body ? JSON.parse(body) : {};
-        handleComplaintsSummary(req, parsed, res);
-      } catch (e) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid JSON body' }));
-      }
-    });
-    return;
-  }
-  const geocodeMatch = req.url && req.method === 'GET' && req.url.startsWith('/api/mapbox/geocode');
-  if (geocodeMatch) {
-    if (!MAPBOX_TOKEN) {
+    try {
+      const payload = await fetchMapboxWalking(fromLngLat, toLngLat);
+      walkCache[key] = { payload, at: Date.now() };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(payload));
+    } catch (err) {
+      console.error('Mapbox walk directions error:', err.message);
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'MAPBOX_TOKEN is not set' }));
-      return;
+      res.end(JSON.stringify({ error: err.message }));
     }
-    const u = new URL(req.url, 'http://localhost');
-    const q = u.searchParams.get('q') || '';
-    const proximity = u.searchParams.get('proximity') || '-79.0478,35.9105';
-    const bbox = '-79.08,35.89,-79.03,35.93';
-    if (!q.trim()) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Missing q query parameter' }));
-      return;
-    }
-    const encodedQ = encodeURIComponent(q.trim());
-    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedQ}.json?autocomplete=true&limit=5&proximity=${encodeURIComponent(proximity)}&bbox=${bbox}&access_token=${encodeURIComponent(MAPBOX_TOKEN)}`;
-    fetch(url)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('Mapbox Geocoding ' + r.status))))
-      .then((data) => {
-        const features = Array.isArray(data.features) ? data.features : [];
-        const results = features
-          .map((f) => ({
-            id: f.id,
-            place_name: f.place_name,
-            coordinates: Array.isArray(f.center) && f.center.length >= 2 ? [f.center[0], f.center[1]] : null,
-            type: Array.isArray(f.place_type) && f.place_type.length ? f.place_type[0] : 'unknown',
-          }))
-          .filter((r) => !!r.coordinates);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ results }));
-      })
-      .catch((err) => {
-        console.error('Mapbox geocode error:', err.message);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: err.message }));
-      });
-    return;
   }
-  const walkMatch = req.url && req.method === 'GET' && req.url.startsWith('/api/mapbox/directions/walk');
-  if (walkMatch) {
-    const u = new URL(req.url, 'http://localhost');
-    const from = u.searchParams.get('from');
-    const to = u.searchParams.get('to');
-    if (!from || !to) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Missing from or to (lng,lat)' }));
-      return;
-    }
-    const fromParts = from.split(',').map((n) => parseFloat(n.trim()));
-    const toParts = to.split(',').map((n) => parseFloat(n.trim()));
-    if (fromParts.length !== 2 || toParts.length !== 2 || fromParts.some(isNaN) || toParts.some(isNaN)) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'from and to must be lng,lat' }));
-      return;
-    }
-    handleWalkDirections([fromParts[0], fromParts[1]], [toParts[0], toParts[1]], res);
-    return;
-  }
-  if (OPS_API_ENABLED && req.url === '/api/admin-optimization-summary' && req.method === 'POST') {
-    let body = '';
-    req.on('data', (chunk) => { body += chunk; });
-    req.on('end', () => {
-      try {
-        const parsed = body ? JSON.parse(body) : {};
-        handleAdminOptimizationSummary(req, parsed, res);
-      } catch (e) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid JSON body' }));
-      }
-    });
-    return;
-  }
-  res.writeHead(404);
-  res.end();
-});
 
-server.listen(PORT, "0.0.0.0", () => {
-  if (!GEMINI_API_KEY) {
-    console.warn('Warning: GEMINI_API_KEY not set. /api/ops/complaints/summary will return 500.');
-  }
-  if (!MAPBOX_TOKEN) {
-    console.warn('Warning: MAPBOX_TOKEN not set. geocoding and walking directions will return 500.');
-  }
-  if (!GMV_RTPI_API_KEY) {
-    console.warn('Warning: GMV_RTPI_API_KEY not set. /api/live/* will report status "unavailable".');
-  }
-  console.log(`API server listening on port ${PORT}`);
-});
+  return http.createServer((req, res) => {
+    const origin = req.headers.origin;
+    const isLocal = typeof origin === 'string' && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+    const isProd = origin === 'https://p2pnow.netlify.app';
+    const isPreview = typeof origin === 'string' && /^https:\/\/.*--p2pnow\.netlify\.app$/.test(origin);
+    if (isLocal || isProd || isPreview) res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    if (req.url === '/healthz' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    if (req.url === '/' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('P2P Live API is running. Try /healthz');
+      return;
+    }
+
+    const pathname = (req.url || '').split('?')[0];
+    if (pathname === '/api/live/network' && req.method === 'GET') {
+      gmvService.getNetwork()
+        .then((network) => {
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' });
+          res.end(JSON.stringify(network));
+        })
+        .catch((err) => {
+          console.error('GMV network error:', err.message);
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Transit network unavailable' }));
+        });
+      return;
+    }
+    if (pathname === '/api/live/snapshot' && req.method === 'GET') {
+      gmvService.getSnapshot()
+        .then((snapshot) => {
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+          res.end(JSON.stringify(snapshot));
+        })
+        .catch((err) => {
+          console.error('GMV snapshot error:', err.message);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Snapshot failed' }));
+        });
+      return;
+    }
+
+    if (req.url && req.method === 'GET' && req.url.startsWith('/api/mapbox/geocode')) {
+      if (!mapboxToken) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'MAPBOX_TOKEN is not set' }));
+        return;
+      }
+      const url = new URL(req.url, 'http://localhost');
+      const query = url.searchParams.get('q') || '';
+      const proximity = url.searchParams.get('proximity') || '-79.0478,35.9105';
+      if (!query.trim()) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Missing q query parameter' }));
+        return;
+      }
+      const encodedQuery = encodeURIComponent(query.trim());
+      const mapboxUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedQuery}.json?autocomplete=true&limit=5&proximity=${encodeURIComponent(proximity)}&bbox=-79.08,35.89,-79.03,35.93&access_token=${encodeURIComponent(mapboxToken)}`;
+      fetch(mapboxUrl)
+        .then((response) => (response.ok ? response.json() : Promise.reject(new Error(`Mapbox Geocoding ${response.status}`))))
+        .then((data) => {
+          const results = (Array.isArray(data.features) ? data.features : [])
+            .map((feature) => ({
+              id: feature.id,
+              place_name: feature.place_name,
+              coordinates: Array.isArray(feature.center) && feature.center.length >= 2 ? [feature.center[0], feature.center[1]] : null,
+              type: Array.isArray(feature.place_type) && feature.place_type.length ? feature.place_type[0] : 'unknown',
+            }))
+            .filter((result) => result.coordinates);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ results }));
+        })
+        .catch((err) => {
+          console.error('Mapbox geocode error:', err.message);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: err.message }));
+        });
+      return;
+    }
+
+    if (req.url && req.method === 'GET' && req.url.startsWith('/api/mapbox/directions/walk')) {
+      const url = new URL(req.url, 'http://localhost');
+      const from = url.searchParams.get('from');
+      const to = url.searchParams.get('to');
+      if (!from || !to) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Missing from or to (lng,lat)' }));
+        return;
+      }
+      const fromParts = from.split(',').map((n) => parseFloat(n.trim()));
+      const toParts = to.split(',').map((n) => parseFloat(n.trim()));
+      if (fromParts.length !== 2 || toParts.length !== 2 || fromParts.some(Number.isNaN) || toParts.some(Number.isNaN)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'from and to must be lng,lat' }));
+        return;
+      }
+      handleWalkDirections(fromParts, toParts, res);
+      return;
+    }
+
+    res.writeHead(404);
+    res.end();
+  });
+}
+
+if (require.main === module) {
+  createApiServer().listen(PORT, '0.0.0.0', () => {
+    if (!MAPBOX_TOKEN) console.warn('Warning: MAPBOX_TOKEN not set. Geocoding and walking directions will return 500.');
+    if (!GMV_RTPI_API_KEY) console.warn('Warning: GMV_RTPI_API_KEY not set. /api/live/* will report status "unavailable".');
+    console.log(`API server listening on port ${PORT}`);
+  });
+}
+
+module.exports = { createApiServer };

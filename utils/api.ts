@@ -5,4 +5,4 @@ function envUrl(key: string): string {
   return typeof raw === 'string' ? raw.trim() : '';
 }
 
-export const API = envUrl('VITE_API_BASE_URL') || envUrl('VITE_OPS_API_URL') || '';
+export const API = envUrl('VITE_API_BASE_URL');

@@ -22,7 +22,7 @@ Real-time P2P campus transit for riders: live vehicles, arrivals, stop discovery
 
 ## Operating Context
 
-Used on phones while walking or waiting on campus. Core rider flows are Home (next ride / nearby), Plan Trip, and Map. Ops dashboards exist in the repo but are out of scope for rider-facing product work unless explicitly enabled.
+Used on phones while walking or waiting on campus. Core rider flows are Home (next ride / nearby), Plan Trip, and Map.
 
 ## Capabilities and Constraints
 

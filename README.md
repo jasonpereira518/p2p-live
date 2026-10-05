@@ -1,19 +1,22 @@
-## Run Locally
+## Run locally
 
-**Prerequisites:** Node.js
+**Prerequisite:** Node.js
 
 1. Install dependencies: `npm install`
-2. **Environment:** Copy [.env.example](.env.example) to `.env.local`. Set **`VITE_MAPBOX_TOKEN`** (Mapbox access token) for the student map view; get one at [mapbox.com](https://www.mapbox.com/). Optionally set **`GEMINI_API_KEY`** for the ops Complaints LLM feature. **Never commit real keys.**
-3. Run the app:
-   - **Terminal 1:** `npm run dev` (Vite frontend)
-   - **Terminal 2:** `npm run server` (Ops API server for `/api/ops/complaints/summary`)
-   - Or run both with `npm run dev:all` if you have `concurrently` installed.
-4. Open http://localhost:3000. The Manager → Complaints tab will show an LLM summary when the API server is running and `GEMINI_API_KEY` is set.
+2. Copy [.env.example](.env.example) to `.env.local` and set `VITE_MAPBOX_TOKEN`, `MAPBOX_TOKEN`, and `GMV_RTPI_API_KEY`. The Vite frontend and Node API both read `.env.local` in local development. Never commit real keys.
+3. Start the public rider app and its API in separate terminals:
+   - `npm run dev` starts Vite on <http://localhost:3000>.
+   - `npm run server` starts the GMV and Mapbox API on port 3001.
+4. Open <http://localhost:3000>.
 
-## Ops dashboards (off by default)
+There is no `dev:all` script. Use the two commands above so each process stays independently visible and easy to stop.
 
-The public site is the rider app only: no P2P Login and no admin, manager or driver pages. The ops code is still in the repo (`pages/ops`, `ops`, `components/ops`). To use it locally, set `VITE_ENABLE_OPS=true` for the frontend and `ENABLE_OPS_API=true` for the API server (see `.env.example`), then restart both. Without these, the ops pages are left out of the build, `/ops/*` redirects to the home page, and the server returns 404 for the ops endpoints.
+## Public rider features
 
-## Live transit data
+P2P Live is a public rider app. It provides Mapbox-backed campus maps, GMV Syncromatics live routes and vehicle positions, stop arrivals, routing, walking directions, and GMV service-status notices. There are no login, account, operations, messaging, or AI-provider features.
 
-Bus positions, ETAs, stops, route lines and service messages come from the GMV Syncromatics RTPI API through the Node server (`/api/live/network`, `/api/live/snapshot`). Set `GMV_RTPI_API_KEY` in the server environment (local `.env`, Render dashboard). Never expose it to the client. GMV data is only cached in memory; the license forbids storing it for more than 24 hours.
+## Verification
+
+- `npm test`
+- `npm run typecheck`
+- `npm run build`

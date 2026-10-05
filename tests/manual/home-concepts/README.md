@@ -5,7 +5,7 @@ Run `npm run dev` and open
 
 This is an isolated Vite entry. Production does not import these files. It uses
 existing React and Lucide dependencies, local styles, and inline illustrative
-data. No transit, location, routing, or login requests are made.
+data. No transit, location, or routing requests are made.
 
 ## Directions
 
@@ -26,7 +26,7 @@ Those are different predictions and are explicitly labeled.
 Use shared service state, phone width, and text-size controls. Each concept has
 independent route filters. Filter selections affect its campus bus list only.
 Arrival cards open local detail previews; Escape dismisses details and restores
-focus. Navigation is visual context. Login opens an explanatory local preview.
+focus. Navigation is visual context.
 
 Standalone URLs accept `concept=A`, `concept=B`, or `concept=C`, plus
 `state=running`, `state=before`, `state=unavailable`, or `state=location`.

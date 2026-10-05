@@ -286,7 +286,7 @@ Hybrid materials system: resting content is flat (white inset on grouped gray, n
 
 ## Shapes
 
-Continuous-corner language: controls `12px`, primary buttons `14px`, inset groups `16px`, sheets `20px`, capsules `980px` (route pills, chips, close buttons, login chip). Skeleton bars use hairline-cap `4px` and block skel `6px`. Hairline borders `0.5px` in separator color; preferred list dividers are internal hairlines, not outer strokes. Primary buttons are rounded-rect, not full pills.
+Continuous-corner language: controls `12px`, primary buttons `14px`, inset groups `16px`, sheets `20px`, capsules `980px` (route pills, chips, close buttons). Skeleton bars use hairline-cap `4px` and block skel `6px`. Hairline borders `0.5px` in separator color; preferred list dividers are internal hairlines, not outer strokes. Primary buttons are rounded-rect, not full pills.
 
 ## Components
 

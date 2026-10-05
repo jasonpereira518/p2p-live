@@ -6,7 +6,7 @@
 
 ## 1. Goal
 
-Today every piece of transit data in the app is fake: 4 hardcoded vehicles with static ETAs (`data/mockTransit.ts`), buses animated at a constant 6 m/s along Mapbox-generated lines (`components/MapboxMap.tsx`), schedule-math arrivals (`utils/serviceSchedule.ts`), hash-based fullness, and an unused random `/api/arrivals`. This project makes the rider app, Plan Trip, and ops dashboards run on real vehicle positions, predictions, capacity, route shapes, stops, and service messages from GMV, while degrading gracefully to the timetable when live data is unavailable.
+Today every piece of transit data in the app is fake: 4 hardcoded vehicles with static ETAs (`data/mockTransit.ts`), buses animated at a constant 6 m/s along Mapbox-generated lines (`components/MapboxMap.tsx`), schedule-math arrivals (`utils/serviceSchedule.ts`), hash-based fullness, and an unused random `/api/arrivals`. This project makes the rider app and trip planning run on real vehicle positions, predictions, capacity, route shapes, stops, and service messages from GMV, while degrading gracefully to the timetable when live data is unavailable.
 
 ## 2. Constraints
 
@@ -15,7 +15,7 @@ Today every piece of transit data in the app is fake: 4 hardcoded vehicles with 
   - Static GMV data is refreshed every 6 hours (served stale on errors for at most 18 hours total); live data for seconds.
   - GMV payloads are never logged.
   - Test fixtures are hand-written from the documented schemas, never recorded GMV responses.
-  - Client-side caches of derived data (e.g. the existing admin-metrics localStorage cache, 6h) must stay under 24h.
+  - Client-side caches of derived data must stay under 24h.
 - **Key handling:** `GMV_RTPI_API_KEY` is a server-only env var (local `.env`, gitignored; Render environment in production). Never `VITE_`-prefixed, never returned in a response, never logged. `.env.example` lists the name with no value.
 - **Rate:** GMV recommends polling vehicles no more often than every 6 seconds.
 - **Hosting:** Frontend on Netlify (`/api/*` redirected to Render), backend is the plain Node `http` server in `server/index.cjs` on Render (free tier may sleep). No new infrastructure.
@@ -102,14 +102,13 @@ Per request (on cache miss): `GET /routes/{id}/vehicles` for both routes in para
 
 ### Other server changes
 
-- `/api/admin/diagnostics` gains `gmv: { configured, lastSuccessAt, lastErrorAt, lastError (message only), callCount, cacheHits }`.
 - Removed at the end of the project: mock `/api/arrivals`, `/api/mapbox/route`, `server/routeWaypoints.json` (once no consumers remain).
 
 ## 6. Client data layer
 
 - **Types (`types.ts`):** add `RouteId` (`'P2P_EXPRESS' | 'BAITY_HILL'`), `TransitNetwork`, `NetworkRoute`, `RoutePattern`, `NetworkStop`, `LiveSnapshot`, `LiveStatus`, `StopArrival`, `ServiceMessage`. Extend `Vehicle` with the live fields; ETAs become `etaSec`. The `'p2p-express'`/`'baity-hill'` spellings are removed from app code (`serviceSchedule.ts` keeps accepting them).
 - **`utils/transitApi.ts`:** `fetchNetwork()`, `fetchSnapshot()` using the existing API base from `utils/api.ts`.
-- **`TransitProvider` (context, mounted in `RouterApp.tsx`)** so rider and ops pages share one poller:
+- **`TransitProvider` (context, mounted in `RouterApp.tsx`)** gives all rider surfaces one poller:
   - Loads the network once. Polls the snapshot every 6 s while `document.visibilityState === 'visible'`; pauses when hidden; fetches immediately on becoming visible.
   - Backoff on fetch errors: 6 s → 12 s → 30 s, reset on success.
   - Exposes `refresh()` — wired to the existing Refresh button (replacing the fake 800 ms delay in `App.tsx`).
@@ -146,21 +145,16 @@ Per request (on cache miss): `GET /routes/{id}/vehicles` for both routes in para
 - Bus segment geometry = pattern line sliced between board and alight `distAlong` (`sliceRouteByDistance`), handling loop wrap.
 - Saved routes are unaffected (they store coordinates, not stop ids).
 
-### Ops dashboards
-- **Manager Fleet tab (`OpsManagerPage.tsx`):** rows from live vehicles — `busLabel` = vehicle name, route name, `runLabel` = pattern name, `capacityCurrent/Max` from load × capacity, `lastUpdated`, `isOffRoute` = distance from vehicle to its pattern line > 60 m (`projectPointToRoute`). Dashboard "active buses" and "average load" stats become live; complaints, drivers, timesheets, schedule stay as they are (not GMV data).
-- **Admin metrics (`utils/adminMetrics.ts`, `OpsAdminPage.tsx`):** headway = median gap between consecutive vehicle arrivals at each stop (from `arrivalsByStop`); average wait = headway / 2; active vehicles and load from the snapshot. With no service, show the no-service state rather than computed values. Existing 6 h localStorage cache and Gemini optimization flow unchanged.
-- **Driver map (`DriverLocationMap.tsx`):** route drawn from pattern geometry instead of straight lines between stops.
-
 ## 8. Phases
 
 Each phase ships independently and leaves the app working.
 
 0. **Prerequisites:** cherry-pick `22fd843` (restores `utils/serviceSchedule.ts`, fixes post-midnight ETAs); add `GMV_RTPI_API_KEY` to local `.env` and (name only) to `.env.example`; user sets it in Render.
-1. **Server:** `server/gmv/*`, `/api/live/network`, `/api/live/snapshot`, diagnostics, tests. No UI change.
-2. **Rider map, bus list, bus detail:** types, `TransitProvider`, stop display names, migrate *all* consumers of `p2pStops`/`STOPS`/`VEHICLES` to network data and canonical ids (Plan Trip and ops at the id level only), live map rendering, `LiveStatusBanner`, working Refresh.
+1. **Server:** `server/gmv/*`, `/api/live/network`, `/api/live/snapshot`, and tests. No UI change.
+2. **Rider map, bus list, bus detail:** types, `TransitProvider`, stop display names, migrate *all* consumers of `p2pStops`/`STOPS`/`VEHICLES` to network data and canonical ids, live map rendering, `LiveStatusBanner`, working Refresh.
 3. **Stop ETAs + messages:** `utils/arrivals.ts`, `useStopArrivals`, ClosestStopCard, StopPopup, `ServiceMessageBanner`.
 4. **Plan Trip:** live wait and ride time, pattern-sliced geometry.
-5. **Ops + cleanup:** Fleet tab, dashboard stats, admin metrics, driver map; remove `/api/arrivals`, `/api/mapbox/route`, `routeWaypoints.json`, unused mocks, `utils/journey.ts`.
+5. **Cleanup:** remove `/api/arrivals`, `/api/mapbox/route`, `routeWaypoints.json`, unused mocks, and `utils/journey.ts`.
 
 ## 9. Error handling summary
 
@@ -177,9 +171,9 @@ Each phase ships independently and leaves the app working.
 
 - Add **Vitest** and an `npm test` script (covers TS client code and CJS server modules).
 - **Server:** polyline decoding against a known vector; normalizers; arrivals grouping into `upcomingStops`/`arrivalsByStop`; status derivation; cache dedupe and stale-on-error (GMV stubbed via injected `fetch`).
-- **Client:** `getStopArrivals` live/scheduled fallback; `formatEta`; Plan Trip wait/ride math including loop wrap; off-route check; stop display-name matching.
+- **Client:** `getStopArrivals` live/scheduled fallback; `formatEta`; Plan Trip wait/ride math including loop wrap; stop display-name matching.
 - **Fixtures:** hand-written from the documented schemas only.
-- **Live verification (7 PM–3 AM):** compare positions and ETAs against P2P's official tracker at a few stops; confirm `speed` units and `schedulePrediction` type; check `/api/admin/diagnostics` call counts stay ≈ 4 per 6 s with multiple tabs open.
+- **Live verification (7 PM–3 AM):** compare positions and ETAs against P2P's official tracker at a few stops; confirm `speed` units and `schedulePrediction` type.
 
 ## 11. Rollout
 
@@ -191,4 +185,4 @@ Repeat per phase.
 
 ## 12. Out of scope
 
-Server push (SSE/websockets), any persistence of GMV data, GTFS/GTFS-RT, real ops authentication or a database, occupancy prediction, stop-code/RTPI-number lookups.
+Server push (SSE/websockets), any persistence of GMV data, GTFS/GTFS-RT, occupancy prediction, stop-code/RTPI-number lookups.

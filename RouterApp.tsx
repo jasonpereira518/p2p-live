@@ -1,14 +1,15 @@
-/**
- * Root router: student app at /. Ops dashboards at /ops/* only when built with
- * VITE_ENABLE_OPS=true; otherwise they are left out of the build and /ops/* goes home.
- */
+/** Public rider routes. Unknown paths always return visitors to the rider app. */
 
-import React, { Suspense, lazy } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import App from './App';
 import { TransitProvider } from './context/TransitProvider';
+import { PUBLIC_RIDER_PATH, publicRiderPath } from './utils/publicRouting';
 
-const OpsRoutes = __OPS_ENABLED__ ? lazy(() => import('./ops/OpsRoutes')) : null;
+function RedirectToRider() {
+  const location = useLocation();
+  return <Navigate to={publicRiderPath(location.pathname)} replace />;
+}
 
 export function RouterApp() {
   return (
@@ -16,11 +17,8 @@ export function RouterApp() {
       <TransitProvider>
         <div className="h-full flex flex-col min-h-0">
         <Routes>
-          <Route path="/" element={<App />} />
-          {OpsRoutes && (
-            <Route path="/ops/*" element={<Suspense fallback={null}><OpsRoutes /></Suspense>} />
-          )}
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path={PUBLIC_RIDER_PATH} element={<App />} />
+          <Route path="*" element={<RedirectToRider />} />
         </Routes>
         </div>
       </TransitProvider>

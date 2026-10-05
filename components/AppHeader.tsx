@@ -1,13 +1,8 @@
-/**
- * Shared header: logo and, in the ops build only, the P2P Login / account area.
- */
+/** Shared public-rider header. */
 
-import React, { Suspense, lazy } from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
 import { LocateFixed } from 'lucide-react';
-
-// The rider build has no login; AccountMenu (and ops/auth) is left out of it entirely.
-const AccountMenu = __OPS_ENABLED__ ? lazy(() => import('./AccountMenu')) : null;
 
 interface AppHeaderProps {
   loadingLoc?: boolean;
@@ -53,11 +48,6 @@ export function AppHeader({ loadingLoc = false, compact = false, home = false }:
       </div>
       <div className="flex items-center gap-2 sm:gap-3">
         {loadingLoc && <LocateFixed className="animate-spin text-black/25 shrink-0" size={18} aria-hidden />}
-        {AccountMenu && (
-          <Suspense fallback={null}>
-            <AccountMenu home={home} />
-          </Suspense>
-        )}
       </div>
     </header>
   );

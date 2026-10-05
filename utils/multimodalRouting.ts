@@ -22,7 +22,7 @@ import { ROUTE_IDS, ROUTE_NAMES } from '../data/routes';
 import { getActivePattern } from './transitSelectors';
 import { estimateBusLeg, fallbackRideSec, recommendedMode, rideDistanceMeters, type TripMode, type TripOptions } from './tripPlanning';
 
-const BASE = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_OPS_API_URL) || '';
+const BASE = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL) || '';
 const K_NEAREST = 6;
 const MAX_WALK_METERS = 1200;
 const MAX_WALK_DURATION_SEC = 15 * 60;
