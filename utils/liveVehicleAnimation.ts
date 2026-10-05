@@ -20,6 +20,8 @@ export const SNAP_METERS = 400;
 export const HOLD_METERS = 30;
 /** Seconds for a turn to mostly settle. */
 export const TURN_SEC = 0.35;
+/** Longer frames (a slow or throttled page) are split into steps this short, so the spring stays accurate. */
+export const MAX_STEP_SEC = 0.05;
 
 export interface BusMotion {
   patternId: number | null;
@@ -58,8 +60,18 @@ const turnBy = (from: number, to: number) => ((to - from) % 360 + 540) % 360 - 1
 /** Signed meters from `from` to `to` around a loop of `length`, in [-length/2, length/2). */
 const loopGap = (gap: number, length: number) => ((gap % length) + length * 1.5) % length - length / 2;
 
-/** Advance a drawn bus by one frame of `dtSec`. */
+/** Advance a drawn bus by one frame of `dtSec`; `ageSec` is the report's age at the end of the frame. */
 export function stepBus(prev: BusMotion | null, v: LiveVehicle, route: RouteInterpolator | null, ageSec: number, dtSec: number): BusMotion {
+  if (prev && dtSec > MAX_STEP_SEC) {
+    const steps = Math.ceil(dtSec / MAX_STEP_SEC), step = dtSec / steps;
+    let m = prev;
+    for (let i = steps - 1; i >= 0; i--) m = stepOnce(m, v, route, ageSec - i * step, step);
+    return m;
+  }
+  return stepOnce(prev, v, route, ageSec, dtSec);
+}
+
+function stepOnce(prev: BusMotion | null, v: LiveVehicle, route: RouteInterpolator | null, ageSec: number, dtSec: number): BusMotion {
   const turn = (bearing: number) => prev
     ? (prev.bearing + turnBy(prev.bearing, bearing) * (1 - Math.exp(-dtSec / TURN_SEC)) + 360) % 360
     : bearing;

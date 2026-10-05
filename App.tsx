@@ -15,18 +15,18 @@ import { eligibleCampusLocation } from './utils/mapPresentation';
 import './components/passenger.css';
 import './components/ios-rider.css';
 import { ServiceMessageBanner } from './components/ServiceMessageBanner';
+import { useLiveLocation } from './hooks/useLiveLocation';
 
 // Default to UNC Student Union if geo denied
 const DEFAULT_LOCATION: Coordinate = { lat: 35.9105, lon: -79.0478 };
 
 function App() {
   const [view, setView] = useState<ViewState>('list');
-  const [userLocation, setUserLocation] = useState<Coordinate>(DEFAULT_LOCATION);
+  // Follows the rider as they move while the site is open (falls back to the Union if denied).
+  const { location: userLocation, resolved: geoResolved, loading: loadingLoc } = useLiveLocation(DEFAULT_LOCATION);
   const [selectedBusId, setSelectedBusId] = useState<string | null>(null);
   const [selectedStop, setSelectedStop] = useState<Stop | null>(null);
   const [activeJourney, setActiveJourney] = useState<Journey | null>(null);
-  const [loadingLoc, setLoadingLoc] = useState(true);
-  const [geoResolved, setGeoResolved] = useState(false); // true only when getCurrentPosition succeeds
   const [searchRequest, setSearchRequest] = useState<SearchSheetRequest | null>(null);
   const [behindSheet, setBehindSheet] = useState(false);
   const [starred, setStarred] = useState<Destination[]>(() => getStarredPlaces());
@@ -41,28 +41,6 @@ function App() {
   const { network, vehicles } = useTransit();
   const selectedBus = useMemo(() => vehicles.find((v) => v.id === selectedBusId) ?? null, [vehicles, selectedBusId]);
   const networkStops = useMemo(() => network?.stops ?? [], [network]);
-  // Geolocation Setup
-  useEffect(() => {
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setUserLocation({
-            lat: position.coords.latitude,
-            lon: position.coords.longitude,
-          });
-          setGeoResolved(true);
-          setLoadingLoc(false);
-        },
-        () => {
-          setLoadingLoc(false);
-        },
-        { enableHighAccuracy: true }
-      );
-    } else {
-      setLoadingLoc(false);
-    }
-  }, []);
-
   // Distance warning dismissal persistence (session-scoped)
   useEffect(() => {
     if (typeof window === 'undefined') return;

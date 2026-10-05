@@ -56,6 +56,14 @@ describe('stepBus', () => {
     }
   });
 
+  it('keeps up with the bus when the page only gets a frame a second', () => {
+    const v = makeVehicle({ distAlong: 100, speedMps: 12 });
+    let m = stepBus(null, v, loop, 0, FRAME);
+    for (let t = 1; t <= EXTRAPOLATE_SEC; t++) m = stepBus(m, v, loop, t, 1);
+    // Steady-state spring lag only (2 × speed / rate), not the bus crawling at a fraction of its speed.
+    expect(Math.abs(100 + 12 * EXTRAPOLATE_SEC - m.dist! - 2 * 12 / FOLLOW_RATE)).toBeLessThan(2);
+  });
+
   it('glides into a new report instead of jumping to it', () => {
     const first = run(null, makeVehicle({ distAlong: 100, speedMps: 8 }), 0, 8).motion;
     // The next report puts the bus 20 m farther along than predicted.

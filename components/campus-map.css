@@ -370,3 +370,8 @@
   font-weight: 600;
 }
 .campus-more:active { background: rgba(120, 120, 128, 0.2); }
+
+/* Keep the live rider-location marker above vehicles without intercepting taps. */
+.campus-user.mapboxgl-marker { position: absolute; top: 0; left: 0; z-index: 3; }
+.campus-user { width: 26px; height: 26px; border-radius: 50%; background: #367eec26; pointer-events: none; }
+.campus-user::after { content: ''; position: absolute; left: 50%; top: 50%; width: 17px; height: 17px; margin: -8.5px 0 0 -8.5px; box-sizing: border-box; border: 2.5px solid #fff; border-radius: 50%; background: #367eec; box-shadow: 0 1px 3px #0003; }
