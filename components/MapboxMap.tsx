@@ -1,6 +1,7 @@
 /** Mapbox rendering only; the parent owns route filters and all detail surfaces. */
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import mapboxgl, { type GeoJSONSource } from 'mapbox-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
 import type { Coordinate, Journey, LiveVehicle, RouteId, Stop } from '../types';
 import { ROUTE_COLORS, ROUTE_IDS } from '../data/routes';
 import { createRouteInterpolator, type LngLat } from '../utils/routeInterpolation';
@@ -70,6 +71,7 @@ export interface MapCamera {
   focus: () => void;
 }
 export interface MapboxMapProps {
+  active: boolean;
   vehicles: LiveVehicle[];
   vehiclesReceivedAt: number | null;
   /** Server time the feed was read, for timing each bus from its own GPS report. */
@@ -180,7 +182,7 @@ export const MapboxMap = forwardRef<MapCamera, MapboxMapProps>(function MapboxMa
       map.getContainer().classList.toggle('show-bus-pulse', map.getZoom() >= DETAIL_ZOOM);
     };
     scaleBuses(); map.on('zoom', scaleBuses);
-    const resize = new ResizeObserver(() => map.resize()); resize.observe(container.current);
+    const resize = new ResizeObserver(() => { if (latest.current.active) map.resize(); }); resize.observe(container.current);
     return () => {
       disposed = true; resize.disconnect();
       for (const entry of markers.current.values()) entry.marker.remove();
@@ -234,11 +236,11 @@ export const MapboxMap = forwardRef<MapCamera, MapboxMapProps>(function MapboxMa
     set('destination', props.activeJourney ? [point([props.activeJourney.destination.lon, props.activeJourney.destination.lat], { name: props.activeJourney.destination.name })] : []);
     map.setPaintProperty('routes-line', 'line-opacity', props.activeJourney ? .4 : .95);
     map.setPaintProperty('routes-flow', 'line-opacity', props.activeJourney ? 0 : .55);
-  }, [ready, mapStops, props.highlightedStopId, props.userLocation, props.activeJourney]);
+  }, [ready, mapStops, props.highlightedStopId, props.activeJourney]);
 
   // March the flow dashes along the routes. Off for reduced motion.
   useEffect(() => {
-    const map = mapRef.current; if (!map || !ready || !map.getLayer('routes-flow')) return;
+    const map = mapRef.current; if (!map || !ready || !props.active || !map.getLayer('routes-flow')) return;
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { map.setLayoutProperty('routes-flow', 'visibility', 'none'); return; }
     let frame = 0, step = 0, last = 0, stopped = false;
     const animate = (time: number) => {
@@ -251,7 +253,7 @@ export const MapboxMap = forwardRef<MapCamera, MapboxMapProps>(function MapboxMa
     };
     frame = requestAnimationFrame(animate);
     return () => { stopped = true; cancelAnimationFrame(frame); };
-  }, [ready]);
+  }, [ready, props.active]);
 
   // Fixed to places on each route: set once per route change, never per camera move.
   useEffect(() => {
@@ -286,7 +288,7 @@ export const MapboxMap = forwardRef<MapCamera, MapboxMapProps>(function MapboxMa
   }, [props.vehiclesReceivedAt, props.vehiclesFetchedAt]);
 
   useEffect(() => {
-    const map = mapRef.current; if (!map || !ready || !map.getSource('routes')) return;
+    const map = mapRef.current; if (!map || !ready || !props.active || !map.getSource('routes')) return;
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     let frame = 0, last = performance.now();
     const tick = (time: number) => {
@@ -338,7 +340,11 @@ export const MapboxMap = forwardRef<MapCamera, MapboxMapProps>(function MapboxMa
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [ready]);
+  }, [ready, props.active]);
+
+  useEffect(() => {
+    if (ready && props.active) mapRef.current?.resize();
+  }, [ready, props.active]);
 
   useEffect(() => {
     const map = mapRef.current; if (!map || !ready || !map.getSource('routes')) return;

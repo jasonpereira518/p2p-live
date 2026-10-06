@@ -59,3 +59,8 @@ npm run typecheck
 npm test
 npm run build
 ```
+
+The existing Tailwind theme is compiled at build time; local development and
+production no longer require the Tailwind CDN script. Mapbox loads when opening
+the map. See [mobile performance measurements and reproduction steps](docs/performance.md)
+for the before/after benchmarks and the local simulated-data harness.

@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Box, Compass, ExternalLink, Footprints, List, LocateFixed, Minus, Plus, SlidersHorizontal, X } from 'lucide-react';
-import { MapboxMap, type MapCamera } from './MapboxMap';
+import type { MapCamera } from './MapboxMap';
+import { MapRenderer } from './MapRenderer';
 import { StopPopup } from './StopPopup';
 import type { Stop, LiveVehicle, Coordinate, Journey, RouteId } from '../types';
 import type { LngLat } from '../utils/routeInterpolation';
@@ -14,6 +15,7 @@ import './campus-map.css';
 
 const ROUTES_PDF = 'https://move.unc.edu/wp-content/uploads/sites/248/2022/08/unc-point-to-point-map.pdf';
 interface MapViewProps {
+  active: boolean;
   vehicles: LiveVehicle[];
   userLocation: Coordinate;
   userLocationResolved: boolean;
@@ -28,7 +30,7 @@ interface MapViewProps {
   centerOnCampusAt?: number | null;
   topInset?: number;
 }
-export const MapView: React.FC<MapViewProps> = ({ vehicles, userLocation, userLocationResolved, onSelectBus, onSelectStop, onDismissStop, selectedStop, busDetailsOpen, activeJourney = null, onClearJourney, onStartWalkToStop, centerOnCampusAt, topInset = 0 }) => {
+export const MapView: React.FC<MapViewProps> = ({ active, vehicles, userLocation, userLocationResolved, onSelectBus, onSelectStop, onDismissStop, selectedStop, busDetailsOpen, activeJourney = null, onClearJourney, onStartWalkToStop, centerOnCampusAt, topInset = 0 }) => {
   const { network, networkStatus, snapshot, status, snapshotReceivedAt, refresh, refreshing } = useTransit();
   const [enabled, setEnabled] = useState<RouteId[]>([...ROUTE_IDS]);
   const [enable3D, setEnable3D] = useState(false);
@@ -66,20 +68,23 @@ export const MapView: React.FC<MapViewProps> = ({ vehicles, userLocation, userLo
     measure(); const observer = new ResizeObserver(measure);
     if (sheet.current) observer.observe(sheet.current); if (toolbar.current) observer.observe(toolbar.current);
     return () => observer.disconnect();
-  }, [hasSheet]);
-  useEffect(() => { if ((listOpen || picker) && !busDetailsOpen) panelHeading.current?.focus({ preventScroll: true }); }, [listOpen, picker, busDetailsOpen]);
+  }, [hasSheet, active]);
+  useEffect(() => { if (active && (listOpen || picker) && !busDetailsOpen) panelHeading.current?.focus({ preventScroll: true }); }, [listOpen, picker, busDetailsOpen, active]);
   useEffect(() => {
-    if (!optionsOpen) return;
+    if (!optionsOpen || !active) return;
     const outside = (e: PointerEvent) => { if (!options.current?.contains(e.target as Node)) setOptionsOpen(false); };
     document.addEventListener('pointerdown', outside);
     return () => document.removeEventListener('pointerdown', outside);
-  }, [optionsOpen]);
+  }, [optionsOpen, active]);
   useEffect(() => {
     if (selectedStop && !visibleStops.some(s => s.id === selectedStop.id)) onDismissStop();
     setPicker(p => { const remaining = p?.filter(s => visibleStops.some(v => v.id === s.id)); return remaining?.length ? remaining : null; });
   }, [visibleStops]);
   useEffect(() => { if (busDetailsOpen) { setPicker(null); setListOpen(false); setOptionsOpen(false); } }, [busDetailsOpen]);
-  useEffect(() => { if (activeJourney) journeyHeading.current?.focus({ preventScroll: true }); }, [activeJourney?.id]);
+  useEffect(() => {
+    if (selectedStop || activeJourney) { setPicker(null); setListOpen(false); setOptionsOpen(false); }
+    if (active && activeJourney) journeyHeading.current?.focus({ preventScroll: true });
+  }, [selectedStop?.id, activeJourney?.id, active]);
   const restoreFocus = () => { if (listOpen) optionsButton.current?.focus(); else camera.current?.focus(); };
   const closePanel = () => { restoreFocus(); setPicker(null); setListOpen(false); onDismissStop(); setNearbyDismissed(true); };
   const selectStop = (stop: Stop) => { setPicker(null); setListOpen(false); setOptionsOpen(false); onSelectStop(stop); };
@@ -95,7 +100,7 @@ export const MapView: React.FC<MapViewProps> = ({ vehicles, userLocation, userLo
     else if (activeJourney) { onClearJourney(); camera.current?.focus(); }
     else if (hasSheet) closePanel();
   }}>
-    <MapboxMap ref={camera} vehicles={vehicles} vehiclesReceivedAt={snapshotReceivedAt} vehiclesFetchedAt={snapshot?.fetchedAt ?? null} routeLines={routeLines} patternLines={patternLines} routeStops={routeStops} routeArrows={arrows} enabledRouteIds={enabled} userLocation={location}
+    <MapRenderer cameraRef={camera} active={active} vehicles={vehicles} vehiclesReceivedAt={snapshotReceivedAt} vehiclesFetchedAt={snapshot?.fetchedAt ?? null} routeLines={routeLines} patternLines={patternLines} routeStops={routeStops} routeArrows={arrows} enabledRouteIds={enabled} userLocation={location}
       highlightedStopId={!busDetailsOpen && !picker && !listOpen && !activeJourney ? selectedStop?.id ?? null : null} focusStopId={selectedStop?.id ?? null} viewportInsets={insets} activeJourney={activeJourney}
       onSelectBus={bus => { setPicker(null); setListOpen(false); onDismissStop(); onSelectBus(bus); }} onStopCandidates={choose} onMapClick={() => { if (selectedStop || picker || listOpen) closePanel(); }} enable3D={enable3D} centerOnCampusAt={centerOnCampusAt} />
     <div className="campus-toolbar" ref={toolbar} style={{ top: topInset + 12 }}>

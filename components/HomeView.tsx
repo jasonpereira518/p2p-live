@@ -12,6 +12,7 @@ import { PullToRefresh } from './PullToRefresh';
 import { useStarredTrips, type StarredTrip } from '../hooks/useStarredTrips';
 import { busTripTimes, journeySec } from '../utils/tripPlanning';
 import './home.css';
+import { preloadMap } from './MapRenderer';
 
 interface HomeViewProps {
   location: Coordinate;
@@ -108,8 +109,9 @@ export function HomeView(props: HomeViewProps) {
   const stops = useMemo(() => getActiveStops(network, snapshot), [network, snapshot]);
   const nearestStop = useMemo(() => nearestHomeStop(props.location, props.locationResolved, stops), [props.location, props.locationResolved, stops]);
   // Once live data is in, board at the closest stop a bus is actually coming to, not just the closest stop.
-  const boarding = status === 'loading' ? null : homeBoardingStop(props.location, props.locationResolved, stops,
-    stopId => getStopArrivals({ stopId, network, snapshot, status, now, limit: Infinity }));
+  const boarding = useMemo(() => status === 'loading' ? null : homeBoardingStop(props.location, props.locationResolved, stops,
+    stopId => getStopArrivals({ stopId, network, snapshot, status, now, limit: Infinity })),
+    [props.location, props.locationResolved, stops, network, snapshot, status, now]);
   const nearest = boarding?.stop ?? nearestStop;
   const walkSec = boarding?.walkSec ?? (nearest ? getWalkTimeSeconds(getDistanceMeters(props.location, nearest)) : 0);
   const departure = boarding ? homeDeparture(boarding.arrivals, boarding.walkSec) : null;
@@ -132,7 +134,7 @@ export function HomeView(props: HomeViewProps) {
       <span className="home-moon" aria-hidden="true" />
       <h2 id="home-night-title" className="home-night-count"><RollingNumber value={serviceCountdown(now)} /></h2>
       <p className="home-night-time">Buses start at {summary.value}</p>
-      <button className="home-night-action" onClick={() => nearest ? props.onSelectStop(nearest) : props.onBrowseMap()}>{nearest ? 'View nearest stop' : 'Browse stops'}<ChevronRight size={20} aria-hidden="true" /></button>
+      <button className="home-night-action" onPointerDown={preloadMap} onFocus={preloadMap} onClick={() => nearest ? props.onSelectStop(nearest) : props.onBrowseMap()}>{nearest ? 'View nearest stop' : 'Browse stops'}<ChevronRight size={20} aria-hidden="true" /></button>
     </section>;
   } else if (props.loadingLocation || (!network && networkStatus === 'loading') || (nearest && status === 'loading')) {
     nearby = <NextRideSkeleton label={props.loadingLocation ? 'Finding your nearest stop…' : nearest ? 'Loading arrivals…' : 'Loading campus stops…'} />;
@@ -165,7 +167,7 @@ export function HomeView(props: HomeViewProps) {
         </div>
         <div className="home-boarding"><span>Board at</span><h3>{nearest.name}</h3></div>
         <p className="home-bus-line"><Bus aria-hidden="true" /><span className="home-bus-text"><span><span>{busInMin < 1 ? 'Bus arriving now' : `Bus arrives in ${busInMin} min`}</span> <small>{walkMin} min walk</small></span></span></p>
-        <button className="home-primary" onClick={() => props.onSelectStop(nearest)}>View stop on map <ArrowUpRight size={18} aria-hidden="true" /></button>
+        <button className="home-primary" onPointerDown={preloadMap} onFocus={preloadMap} onClick={() => props.onSelectStop(nearest)}>View stop on map <ArrowUpRight size={18} aria-hidden="true" /></button>
       </section>
     </>;
   } else if (trackingFailed) {

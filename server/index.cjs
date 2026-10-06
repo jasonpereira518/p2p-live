@@ -9,6 +9,7 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 const http = require('http');
+const { gzip } = require('zlib');
 const { createGmvClient } = require('./gmv/client.cjs');
 const { createGmvService } = require('./gmv/service.cjs');
 
@@ -17,6 +18,24 @@ const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN;
 const GMV_RTPI_API_KEY = process.env.GMV_RTPI_API_KEY;
 const defaultGmvService = createGmvService({ client: createGmvClient({ apiKey: GMV_RTPI_API_KEY }) });
 const WALK_CACHE_TTL_MS = 15 * 60 * 1000;
+
+/** Compress route geometry and snapshots for phones; keep the existing freshness headers. */
+function sendJson(req, res, status, payload, headers = {}) {
+  const body = JSON.stringify(payload);
+  const baseHeaders = { 'Content-Type': 'application/json', Vary: 'Origin, Accept-Encoding', ...headers };
+  const acceptsGzip = (req.headers['accept-encoding'] || '').split(',').some(value => {
+    const [encoding, ...params] = value.trim().split(';');
+    return encoding === 'gzip' && !params.some(param => /^\s*q=0(?:\.0*)?\s*$/.test(param));
+  });
+  if (body.length < 1024 || !acceptsGzip) {
+    res.writeHead(status, baseHeaders); res.end(body); return;
+  }
+  gzip(body, (error, compressed) => {
+    if (res.destroyed) return;
+    res.writeHead(status, error ? baseHeaders : { ...baseHeaders, 'Content-Encoding': 'gzip' });
+    res.end(error ? body : compressed);
+  });
+}
 
 function roundCoord(coord, decimals = 5) {
   return [Number(coord[0].toFixed(decimals)), Number(coord[1].toFixed(decimals))];
@@ -29,13 +48,14 @@ function walkCacheKey(from, to) {
 }
 
 function createApiServer({ gmvService = defaultGmvService, mapboxToken = MAPBOX_TOKEN } = {}) {
-  const walkCache = Object.create(null);
+  const walkCache = new Map();
+  const walkRequests = new Map();
 
   async function fetchMapboxWalking(fromLngLat, toLngLat) {
     if (!mapboxToken) throw new Error('MAPBOX_TOKEN is not set');
     const coords = `${fromLngLat[0]},${fromLngLat[1]};${toLngLat[0]},${toLngLat[1]}`;
     const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${coords}?geometries=geojson&overview=full&steps=true&access_token=${encodeURIComponent(mapboxToken)}`;
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
     if (!response.ok) throw new Error(`Mapbox Directions ${response.status}: ${await response.text()}`);
     const data = await response.json();
     const route = data.routes && data.routes[0];
@@ -53,19 +73,24 @@ function createApiServer({ gmvService = defaultGmvService, mapboxToken = MAPBOX_
     };
   }
 
-  async function handleWalkDirections(fromLngLat, toLngLat, res) {
+  async function handleWalkDirections(fromLngLat, toLngLat, req, res) {
     const key = walkCacheKey(fromLngLat, toLngLat);
-    const cached = walkCache[key];
+    const cached = walkCache.get(key);
     if (cached && Date.now() - cached.at < WALK_CACHE_TTL_MS) {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(cached.payload));
+      sendJson(req, res, 200, cached.payload);
       return;
     }
     try {
-      const payload = await fetchMapboxWalking(fromLngLat, toLngLat);
-      walkCache[key] = { payload, at: Date.now() };
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(payload));
+      let request = walkRequests.get(key);
+      if (!request) {
+        request = fetchMapboxWalking(fromLngLat, toLngLat).then(payload => {
+          if (walkCache.size >= 500) walkCache.delete(walkCache.keys().next().value);
+          walkCache.set(key, { payload, at: Date.now() });
+          return payload;
+        }).finally(() => walkRequests.delete(key));
+        walkRequests.set(key, request);
+      }
+      sendJson(req, res, 200, await request);
     } catch (err) {
       console.error('Mapbox walk directions error:', err.message);
       res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -102,8 +127,7 @@ function createApiServer({ gmvService = defaultGmvService, mapboxToken = MAPBOX_
     if (pathname === '/api/live/network' && req.method === 'GET') {
       gmvService.getNetwork()
         .then((network) => {
-          res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' });
-          res.end(JSON.stringify(network));
+          sendJson(req, res, 200, network, { 'Cache-Control': 'public, max-age=300' });
         })
         .catch((err) => {
           console.error('GMV network error:', err.message);
@@ -115,8 +139,7 @@ function createApiServer({ gmvService = defaultGmvService, mapboxToken = MAPBOX_
     if (pathname === '/api/live/snapshot' && req.method === 'GET') {
       gmvService.getSnapshot()
         .then((snapshot) => {
-          res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-          res.end(JSON.stringify(snapshot));
+          sendJson(req, res, 200, snapshot, { 'Cache-Control': 'no-store' });
         })
         .catch((err) => {
           console.error('GMV snapshot error:', err.message);
@@ -142,7 +165,7 @@ function createApiServer({ gmvService = defaultGmvService, mapboxToken = MAPBOX_
       }
       const encodedQuery = encodeURIComponent(query.trim());
       const mapboxUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedQuery}.json?autocomplete=true&limit=5&proximity=${encodeURIComponent(proximity)}&bbox=-79.08,35.89,-79.03,35.93&access_token=${encodeURIComponent(mapboxToken)}`;
-      fetch(mapboxUrl)
+      fetch(mapboxUrl, { signal: AbortSignal.timeout(10000) })
         .then((response) => (response.ok ? response.json() : Promise.reject(new Error(`Mapbox Geocoding ${response.status}`))))
         .then((data) => {
           const results = (Array.isArray(data.features) ? data.features : [])
@@ -153,8 +176,7 @@ function createApiServer({ gmvService = defaultGmvService, mapboxToken = MAPBOX_
               type: Array.isArray(feature.place_type) && feature.place_type.length ? feature.place_type[0] : 'unknown',
             }))
             .filter((result) => result.coordinates);
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ results }));
+          sendJson(req, res, 200, { results });
         })
         .catch((err) => {
           console.error('Mapbox geocode error:', err.message);
@@ -180,7 +202,7 @@ function createApiServer({ gmvService = defaultGmvService, mapboxToken = MAPBOX_
         res.end(JSON.stringify({ error: 'from and to must be lng,lat' }));
         return;
       }
-      handleWalkDirections(fromParts, toParts, res);
+      handleWalkDirections(fromParts, toParts, req, res);
       return;
     }
 

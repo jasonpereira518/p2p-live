@@ -34,7 +34,7 @@ export function TransitProvider({ children }: { children: React.ReactNode }) {
   const [attempted, setAttempted] = useState(false);
   const [clock, setClock] = useState(() => Date.now());
   const [refreshing, setRefreshing] = useState(false);
-  const inFlightRef = useRef(false);
+  const snapshotRequest = useRef<Promise<boolean> | null>(null);
   const networkRequest = useRef<Promise<void> | null>(null);
   const networkRetryTimer = useRef<ReturnType<typeof setTimeout> | undefined>();
   const refreshRequest = useRef<Promise<void> | null>(null);
@@ -73,22 +73,28 @@ export function TransitProvider({ children }: { children: React.ReactNode }) {
     };
   }, [loadNetwork]);
 
-  /** Fetch one snapshot. Resolves true on success (or when a fetch is already running). */
-  const pollOnce = useCallback(async (): Promise<boolean> => {
-    if (inFlightRef.current) return true;
-    inFlightRef.current = true;
-    try {
-      const next = await fetchSnapshot();
-      setSnapshot(next);
-      setReceivedAt(Date.now());
-      return true;
-    } catch {
-      return false;
-    } finally {
-      inFlightRef.current = false;
-      setAttempted(true);
-      setClock(Date.now());
-    }
+  /** A manual refresh joins an ongoing poll, so completion means the data actually arrived. */
+  const pollOnce = useCallback((): Promise<boolean> => {
+    if (snapshotRequest.current) return snapshotRequest.current;
+    snapshotRequest.current = (async () => {
+      try {
+        const next = await fetchSnapshot();
+        if (mounted.current) {
+          setSnapshot(next);
+          setReceivedAt(Date.now());
+        }
+        return true;
+      } catch {
+        return false;
+      } finally {
+        snapshotRequest.current = null;
+        if (mounted.current) {
+          setAttempted(true);
+          setClock(Date.now());
+        }
+      }
+    })();
+    return snapshotRequest.current;
   }, []);
 
   useEffect(() => {

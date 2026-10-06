@@ -17,9 +17,10 @@ import { CAMPUS_PLACES, highlightMatch, searchCampusPlaces } from '../utils/plac
 import { homeServiceSummary } from '../utils/homePresentation';
 import { addRecentSearch, getRecentSearches } from '../storage/recentSearches';
 import { samePlace } from '../storage/starredPlaces';
-import { API } from '../utils/api';
+import { geocoder } from '../utils/geocode';
 import { RollingNumber } from './RollingNumber';
 import { TripResults } from './TripResults';
+import { preloadMap } from './MapRenderer';
 import './search-sheet.css';
 
 /** What opened the sheet: its on-screen box (the sheet grows from it) and, for a starred place, that place. */
@@ -48,10 +49,9 @@ interface SearchSheetProps {
 type Phase = 'opening' | 'open' | 'closing';
 /** How the current pane arrives: with the sheet, from a tab switch, or pushed/popped by a trip. */
 type Enter = 'first' | 'right' | 'left' | 'push' | 'pop' | 'none';
-interface GeocodeResult { id: string; place_name: string; coordinates: [number, number] }
 
-const CLOSE_MS = 400;
-const FADE_MS = 280;
+const CLOSE_MS = 220;
+const FADE_MS = 180;
 const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const shortRoute = (id: RouteId) => (id === 'P2P_EXPRESS' ? 'Express' : 'Baity Hill');
 
@@ -61,17 +61,17 @@ function useGeocode(query: string, near: Coordinate) {
   const [loading, setLoading] = useState(false);
   useEffect(() => {
     if (query.length < 3) { setResults([]); setLoading(false); return; }
+    const cached = geocoder.cached(query, near);
+    if (cached) { setResults(cached); setLoading(false); return; }
     const controller = new AbortController();
+    setResults([]);
     setLoading(true);
     const timer = setTimeout(() => {
-      fetch(`${API}/api/mapbox/geocode?q=${encodeURIComponent(query)}&proximity=${near.lon},${near.lat}`, { signal: controller.signal })
-        .then(res => (res.ok ? res.json() : Promise.reject(new Error(res.statusText))))
-        .then((data: { results?: GeocodeResult[] }) => setResults((data.results ?? []).map(r => ({
-          id: `addr-${r.id}`, name: r.place_name.split(',')[0], address: r.place_name, lon: r.coordinates[0], lat: r.coordinates[1],
-        }))))
-        .catch(err => { if ((err as Error).name !== 'AbortError') setResults([]); })
+      geocoder.search(query, near, controller.signal)
+        .then(next => { if (!controller.signal.aborted) setResults(next); })
+        .catch(err => { if (!controller.signal.aborted && (err as Error).name !== 'AbortError') setResults([]); })
         .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    }, 280);
+    }, 180);
     return () => { controller.abort(); clearTimeout(timer); };
     // Re-query only when the rider moves far enough to change which matches are nearest.
   }, [query, near.lat.toFixed(2), near.lon.toFixed(2)]);
@@ -121,16 +121,17 @@ export function SearchSheet(props: SearchSheetProps) {
   const [query, setQuery] = useState('');
   const [destination, setDestination] = useState<Destination | null>(request.place ?? null);
   const [trip, setTrip] = useState<PlannedTrip | null>(null);
-  const [planning, setPlanning] = useState<'idle' | 'loading' | 'refreshing' | 'error'>('idle');
+  const [planning, setPlanning] = useState<'idle' | 'loading' | 'partial' | 'refreshing' | 'error'>('idle');
   const [recent, setRecent] = useState(() => getRecentSearches());
   const [now, setNow] = useState(() => new Date());
   const input = useRef<HTMLInputElement>(null);
   const phaseRef = useRef(phase); phaseRef.current = phase;
   const latest = useRef({ location, network, snapshot }); latest.current = { location, network, snapshot };
   const planId = useRef(0);
+  const selectedMode = useRef<TripMode | null>(null);
   const timers = useRef<number[]>([]);
   const later = (fn: () => void, ms: number) => { timers.current.push(window.setTimeout(fn, ms)); };
-  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+  useEffect(() => () => { planId.current++; timers.current.forEach(clearTimeout); }, []);
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 15000); return () => clearInterval(t); }, []);
 
   // Focus in the same task as the tap so phones raise the keyboard while the sheet grows.
@@ -144,6 +145,7 @@ export function SearchSheet(props: SearchSheetProps) {
 
   const close = useCallback((style: 'shrink' | 'fade' = 'shrink', then?: () => void) => {
     if (phaseRef.current === 'closing') return;
+    planId.current++;
     input.current?.blur();
     setCloseStyle(style);
     setPhase('closing');
@@ -154,13 +156,21 @@ export function SearchSheet(props: SearchSheetProps) {
 
   const plan = useCallback(async (dest: Destination, keepMode?: TripMode) => {
     const id = ++planId.current;
+    selectedMode.current = keepMode ?? null;
     setPlanning(keepMode ? 'refreshing' : 'loading');
     try {
       const { location: origin, network: net, snapshot: snap } = latest.current;
-      const options = await computeTripOptions({ origin, destination: dest, network: net, snapshot: snap });
+      const options = await computeTripOptions({ origin, destination: dest, network: net, snapshot: snap,
+        onWalkReady: walk => {
+          if (id !== planId.current || keepMode) return;
+          setTrip({ options: { walk, bus: null, busUnavailable: null, recommended: 'walk' }, mode: 'walk', destination: dest });
+          setPlanning('partial');
+        },
+      });
       if (id !== planId.current) return;
       if (!options.walk && !options.bus) throw new Error('No walking or bus route');
-      setTrip({ options, mode: keepMode && options[keepMode] ? keepMode : options.recommended, destination: dest });
+      const chosen = selectedMode.current;
+      setTrip({ options, mode: chosen && options[chosen] ? chosen : options.recommended, destination: dest });
       setPlanning('idle');
     } catch (e) {
       console.error(e);
@@ -218,7 +228,7 @@ export function SearchSheet(props: SearchSheetProps) {
 
   // Nearest stops tab: one entry per stop name, with each route's next two buses.
   const stops = useMemo(() => {
-    if (!network) return [];
+    if (!network || tab !== 'stops') return [];
     const seen = new Set<string>();
     return findKNearestStops(location, getActiveStops(network, snapshot), 12)
       .filter(({ stop }) => !seen.has(stop.name) && (seen.add(stop.name), true))
@@ -230,7 +240,7 @@ export function SearchSheet(props: SearchSheetProps) {
         }
         return { stop, walkMin: getWalkTimeMinutes(distanceMeters), routes: [...byRoute.entries()] };
       });
-  }, [network, snapshot, status, location, now]);
+  }, [network, snapshot, status, location, now, tab]);
   const summary = homeServiceSummary(status, now);
 
   const o = request.origin;
@@ -302,7 +312,7 @@ export function SearchSheet(props: SearchSheetProps) {
           </div>
           {!network ? <p className="ss-note" role="status">Loading stops…</p> : <ul className="ss-list">
             {stops.map(({ stop, walkMin, routes }, i) => <li key={stop.id} className="ss-row" style={{ '--i': i + 1 } as React.CSSProperties}>
-              <button type="button" className="ss-stop" onClick={() => close('fade', () => props.onSelectStop(stop))}>
+              <button type="button" className="ss-stop" onPointerDown={preloadMap} onFocus={preloadMap} onClick={() => close('fade', () => props.onSelectStop(stop))}>
                 <span className="ss-row-text"><strong>{stop.name}</strong>
                   {locationKnown && <span className="ss-walk"><Footprints aria-hidden="true" />{walkMin} min walk</span>}</span>
                 <span className="ss-times">
@@ -330,8 +340,8 @@ export function SearchSheet(props: SearchSheetProps) {
             <AlertCircle aria-hidden="true" /><p>We couldn’t plan this trip. Check your connection and try again.</p>
             <button type="button" onClick={() => void plan(destination)}>Try again</button>
           </div>}
-          {trip && planning !== 'loading' && planning !== 'error' && <TripResults trip={trip} stopNameById={stopNameById} refreshing={planning === 'refreshing'}
-            onModeChange={mode => setTrip({ ...trip, mode })}
+          {trip && planning !== 'loading' && planning !== 'error' && <TripResults trip={trip} stopNameById={stopNameById} refreshing={planning === 'refreshing'} busPending={planning === 'partial'}
+            onModeChange={mode => { selectedMode.current = mode; setTrip({ ...trip, mode }); }}
             onStart={() => { const journey = trip.options[trip.mode]; if (journey) close('fade', () => props.onStartTrip(journey)); }}
             onRefresh={() => void plan(trip.destination, trip.mode)} />}
         </div>}

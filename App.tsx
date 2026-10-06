@@ -22,6 +22,8 @@ const DEFAULT_LOCATION: Coordinate = { lat: 35.9105, lon: -79.0478 };
 
 function App() {
   const [view, setView] = useState<ViewState>('list');
+  const [mapVisited, setMapVisited] = useState(false);
+  useEffect(() => { if (view === 'map') setMapVisited(true); }, [view]);
   // Follows the rider as they move while the site is open (falls back to the Union if denied).
   const { location: userLocation, resolved: geoResolved, loading: loadingLoc } = useLiveLocation(DEFAULT_LOCATION);
   const [selectedBusId, setSelectedBusId] = useState<string | null>(null);
@@ -154,9 +156,10 @@ function App() {
           onSelectStop={stop => { setSelectedBusId(null); setActiveJourney(null); setSelectedStop(stop); setView('map'); }}
           onBrowseMap={() => { setSelectedBusId(null); setSelectedStop(null); setActiveJourney(null); setCenterOnCampusAt(Date.now()); setView('map'); }} />}
 
-        {view === 'map' && (
-          <div className="h-full w-full relative pb-[calc(49px+env(safe-area-inset-bottom))]">
+        {(view === 'map' || mapVisited) && (
+          <div hidden={view !== 'map'} className="h-full w-full relative pb-[calc(49px+env(safe-area-inset-bottom))]">
             <MapView
+              active={view === 'map'}
               vehicles={vehicles}
               userLocation={userLocation}
               userLocationResolved={geoResolved}

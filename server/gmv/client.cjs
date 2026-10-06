@@ -21,8 +21,10 @@ function createGmvClient({
   fetchImpl = globalThis.fetch,
   timeoutMs = REQUEST_TIMEOUT_MS,
   now = Date.now,
+  onTiming = timing => { if (timing.durationMs >= 1000) console.warn('Slow GMV request', timing); },
 } = {}) {
   const stats = { callCount: 0, lastSuccessAt: null, lastErrorAt: null, lastError: null };
+  const timings = new Map();
 
   function recordError(message) {
     stats.lastErrorAt = now();
@@ -36,6 +38,8 @@ function createGmvClient({
       throw err;
     }
     stats.callCount += 1;
+    const startedAt = now();
+    let outcome = 'ok';
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -48,6 +52,7 @@ function createGmvClient({
       stats.lastSuccessAt = now();
       return body;
     } catch (err) {
+      outcome = err instanceof GmvError ? String(err.status || err.code) : err?.name === 'AbortError' ? 'TIMEOUT' : 'NETWORK';
       if (err instanceof GmvError) {
         recordError(err.message);
         throw err;
@@ -60,10 +65,15 @@ function createGmvClient({
       throw wrapped;
     } finally {
       clearTimeout(timer);
+      const timing = { path: path.split('?')[0], durationMs: Math.max(0, now() - startedAt), outcome };
+      if (timings.size >= 50 && !timings.has(timing.path)) timings.delete(timings.keys().next().value);
+      timings.set(timing.path, timing);
+      // Diagnostics cannot turn a successful request into a failure.
+      try { onTiming(timing); } catch { /* logging is best effort */ }
     }
   }
 
-  return { get, stats: () => ({ configured: !!apiKey, ...stats }) };
+  return { get, stats: () => ({ configured: !!apiKey, ...stats, endpointTimings: [...timings.values()] }) };
 }
 
 module.exports = { createGmvClient, GmvError };
