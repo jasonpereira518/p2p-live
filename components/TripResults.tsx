@@ -8,11 +8,13 @@ import { RollingNumber } from './RollingNumber';
 import { useTransit } from '../context/TransitProvider';
 import { nextArrivalsByRoute } from '../utils/arrivals';
 import './trip.css';
+import { preloadMap } from './MapRenderer';
 
 interface TripResultsProps {
   trip: PlannedTrip;
   stopNameById: Map<string, string>;
   refreshing: boolean;
+  busPending?: boolean;
   onModeChange: (mode: TripMode) => void;
   onStart: () => void;
   onRefresh: () => void;
@@ -39,7 +41,7 @@ function Directions({ segment }: { segment?: JourneySegment }) {
   </details>;
 }
 
-export function TripResults({ trip, stopNameById, refreshing, onModeChange, onStart, onRefresh }: TripResultsProps) {
+export function TripResults({ trip, stopNameById, refreshing, busPending = false, onModeChange, onStart, onRefresh }: TripResultsProps) {
   const { options, mode, destination } = trip;
   const [now, setNow] = useState(() => new Date());
   useEffect(() => { const timer = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(timer); }, []);
@@ -59,20 +61,20 @@ export function TripResults({ trip, stopNameById, refreshing, onModeChange, onSt
     .find(a => a.at.getTime() > times.boardAt.getTime() + 60000) ?? null : null;
   // Walking can start any time; the bus trip is pinned to the bus it was planned around.
   const walkArrive = walk ? new Date(now.getTime() + journeySec(walk) * 1000) : null;
-  const fastest: TripMode | null = walk && bus && Math.abs(journeySec(walk) - journeySec(bus)) >= 60
+  const fastest: TripMode | null = !busPending && walk && bus && Math.abs(journeySec(walk) - journeySec(bus)) >= 60
     ? (journeySec(walk) < journeySec(bus) ? 'walk' : 'bus') : null;
   const selected = mode === 'bus' ? bus : walk;
   // The option bars race at one speed, so the faster trip finishes first and wins the badge.
   const slowest = Math.max(walk ? journeySec(walk) : 0, bus ? journeySec(bus) : 0);
-  const raceSec = (journey: Journey) => journeySec(journey) / slowest * 1.2;
+  const raceSec = (journey: Journey) => journeySec(journey) / slowest * 0.22;
   const race = (journey: Journey) => ({ '--race-w': `${journeySec(journey) / slowest * 100}%`, '--race-t': `${raceSec(journey)}s` } as React.CSSProperties);
 
   // Start and refresh sit right under the summary so riders don't scroll past the steps to find them.
   const actions = <div className="trip-actions">
-    {selected && <button type="button" className="trip-start" data-route={mode === 'bus' ? ride?.routeId : undefined} onClick={onStart}>
+    {selected && <button type="button" className="trip-start" data-route={mode === 'bus' ? ride?.routeId : undefined} onPointerDown={preloadMap} onFocus={preloadMap} onClick={onStart}>
       {mode === 'bus' ? 'Start trip on map' : 'Start walking on map'}<ArrowUpRight size={20} aria-hidden="true" />
     </button>}
-    <button type="button" className="trip-refresh" onClick={onRefresh} disabled={refreshing}>
+    <button type="button" className="trip-refresh" onClick={onRefresh} disabled={refreshing || busPending}>
       <RefreshCw size={16} className={refreshing ? 'trip-spinning' : ''} aria-hidden="true" />{refreshing ? 'Refreshing…' : 'Refresh'}
     </button>
   </div>;
@@ -87,17 +89,18 @@ export function TripResults({ trip, stopNameById, refreshing, onModeChange, onSt
         <span className="trip-option-note">Arrive {clock(m === 'bus' ? times!.arriveAt : walkArrive!)}</span>
         {m === 'bus' && ride && <span className="trip-option-route">{ride.routeName}</span>}
         <span className="trip-race" style={race(journey)} aria-hidden="true"><i /></span>
-      </> : <span className="trip-option-note">Unavailable</span>}
+      </> : <span className="trip-option-note">{m === 'bus' && busPending ? 'Checking options…' : 'Unavailable'}</span>}
     </button>;
   };
 
-  return <div className="trip-view trip-results">
+  return <div className="trip-view trip-results" data-bus-pending={busPending}>
     <h2 ref={heading} tabIndex={-1} className="trip-dest">{destination.name}</h2>
     {destination.address && destination.address !== destination.name && <p className="trip-sub">{destination.address}</p>}
     <p className="trip-sub">From your location</p>
 
     <div className="trip-options" role="group" aria-label="Ways to get there">{optionCard('walk', walk)}{optionCard('bus', bus)}</div>
-    {!bus && <p className="trip-compare">{busUnavailableMessage(options.busUnavailable)}</p>}
+    {busPending ? <p className="trip-compare" role="status">Walking directions are ready. Checking bus options…</p>
+      : !bus && <p className="trip-compare">{busUnavailableMessage(options.busUnavailable)}</p>}
 
     {mode === 'bus' && bus && ride && times ? <>
       <section className="trip-hero" data-route={ride.routeId} aria-label={`Bus trip on ${ride.routeName}`}>

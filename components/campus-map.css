@@ -375,3 +375,7 @@
 .campus-user.mapboxgl-marker { position: absolute; top: 0; left: 0; z-index: 3; }
 .campus-user { width: 26px; height: 26px; border-radius: 50%; background: #367eec26; pointer-events: none; }
 .campus-user::after { content: ''; position: absolute; left: 50%; top: 50%; width: 17px; height: 17px; margin: -8.5px 0 0 -8.5px; box-sizing: border-box; border: 2.5px solid #fff; border-radius: 50%; background: #367eec; box-shadow: 0 1px 3px #0003; }
+
+/* Canvas space stays stable while the renderer downloads; route controls remain usable. */
+.map-loading { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:24px; background:#f2f2f7; color:#3c3c43; font-size:15px; text-align:center; }
+.map-loading .skel { width:120px; height:12px; }

@@ -20,6 +20,7 @@ import { sliceRouteByDistance } from './routeInterpolation';
 import { getUpcomingRouteArrivals, isRouteOperatingNow } from './serviceSchedule';
 import { ROUTE_IDS, ROUTE_NAMES } from '../data/routes';
 import { getActivePattern } from './transitSelectors';
+import { createRequestQueue } from './requestQueue';
 import { estimateBusLeg, fallbackRideSec, recommendedMode, rideDistanceMeters, type TripMode, type TripOptions } from './tripPlanning';
 
 const BASE = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL) || '';
@@ -37,15 +38,19 @@ export interface WalkDirectionsResult {
 /** Walks between the same points (to ~1 m) are reused for a few minutes: trips from one spot share their stop legs. */
 const WALK_CACHE_MS = 5 * 60 * 1000;
 const walkCache = new Map<string, { at: number; result: Promise<WalkDirectionsResult | null> }>();
+// Trip and starred-place planning share four slots, including simultaneous plans.
+const requestWalk = createRequestQueue(4);
+const MAX_WALK_CACHE_ENTRIES = 200;
 
 export function getWalkDirections(from: Coordinate, to: Coordinate): Promise<WalkDirectionsResult | null> {
   const key = [from.lon, from.lat, to.lon, to.lat].map((n) => n.toFixed(5)).join(',');
   const hit = walkCache.get(key);
   if (hit && Date.now() - hit.at < WALK_CACHE_MS) return hit.result;
-  const result = fetchWalkDirections(from, to);
+  const result = requestWalk(() => fetchWalkDirections(from, to));
+  if (walkCache.size >= MAX_WALK_CACHE_ENTRIES) walkCache.delete(walkCache.keys().next().value!);
   walkCache.set(key, { at: Date.now(), result });
   // Failures are retried next time rather than cached.
-  void result.then((r) => { if (!r) walkCache.delete(key); });
+  void result.then((r) => { if (!r && walkCache.get(key)?.result === result) walkCache.delete(key); });
   return result;
 }
 
@@ -53,7 +58,7 @@ async function fetchWalkDirections(from: Coordinate, to: Coordinate): Promise<Wa
   const fromStr = `${from.lon},${from.lat}`;
   const toStr = `${to.lon},${to.lat}`;
   try {
-    const res = await fetch(`${BASE}/api/mapbox/directions/walk?from=${encodeURIComponent(fromStr)}&to=${encodeURIComponent(toStr)}`);
+    const res = await fetch(`${BASE}/api/mapbox/directions/walk?from=${encodeURIComponent(fromStr)}&to=${encodeURIComponent(toStr)}`, { signal: AbortSignal.timeout(15000) });
     if (!res.ok) return null;
     const data = await res.json();
     if (!data.geometry || !data.geometry.coordinates) return null;
@@ -137,6 +142,8 @@ export interface MultimodalInput {
   destination: Destination;
   network: TransitNetwork | null;
   snapshot: LiveSnapshot | null;
+  /** Publish the usable direct walk before bus alternatives finish. */
+  onWalkReady?: (walk: Journey) => void;
 }
 
 function makeJourney(mode: TripMode, destination: Destination, segments: JourneySegment[], totalSec: number, now: Date): Journey {
@@ -155,10 +162,15 @@ export async function computeTripOptions(input: MultimodalInput): Promise<TripOp
   const destCoord: Coordinate = { lat: destination.lat, lon: destination.lon };
   const now = new Date();
 
-  const walkOnly = await getWalkDirections(origin, destCoord);
-  const walk = walkOnly?.geometry
-    ? makeJourney('walk', destination, [walkSegment(originName, destination.name, origin, destCoord, walkOnly)], walkOnly.durationSec, now)
-    : null;
+  // Start the direct walk now; it need not block independent walks to/from stops.
+  let directWalk: Journey | null = null;
+  const walkOnlyRequest = getWalkDirections(origin, destCoord).then(result => {
+    if (result?.geometry) {
+      directWalk = makeJourney('walk', destination, [walkSegment(originName, destination.name, origin, destCoord, result)], result.durationSec, now);
+      input.onWalkReady?.(directWalk);
+    }
+    return result;
+  });
 
   // The best bus trip competes only with other bus trips, so it is offered even when walking wins.
   let best: { totalSec: number; segments: JourneySegment[] } | null = null;
@@ -190,21 +202,17 @@ export async function computeTripOptions(input: MultimodalInput): Promise<TripOp
       return live.length > 0 ? live : timetableSec;
     };
 
-    const boardCandidates: StopCandidate[] = [];
-    for (const { stop, distanceMeters } of findKNearestStops(origin, routeStops, K_NEAREST)) {
-      if (distanceMeters > MAX_WALK_METERS) continue;
-      const walk = await getWalkDirections(origin, { lat: stop.lat, lon: stop.lon });
-      if (!walk || walk.durationSec > MAX_WALK_DURATION_SEC) continue;
-      boardCandidates.push({ ref: refByStopId.get(stop.id)!, walk });
-    }
-
-    const alightCandidates: StopCandidate[] = [];
-    for (const { stop, distanceMeters } of findKNearestStops(destCoord, routeStops, K_NEAREST)) {
-      if (distanceMeters > MAX_WALK_METERS) continue;
-      const walk = await getWalkDirections({ lat: stop.lat, lon: stop.lon }, destCoord);
-      if (!walk || walk.durationSec > MAX_WALK_DURATION_SEC) continue;
-      alightCandidates.push({ ref: refByStopId.get(stop.id)!, walk });
-    }
+    const candidates = async (near: Coordinate, boarding: boolean): Promise<StopCandidate[]> => {
+      const walks = await Promise.all(findKNearestStops(near, routeStops, K_NEAREST)
+        .filter(({ distanceMeters }) => distanceMeters <= MAX_WALK_METERS)
+        .map(async ({ stop }) => {
+          const walk = await getWalkDirections(boarding ? origin : stop, boarding ? stop : destCoord);
+          return walk && walk.durationSec <= MAX_WALK_DURATION_SEC ? { ref: refByStopId.get(stop.id)!, walk } : null;
+        }));
+      // Preserve nearest-first ordering so equal-time candidates stay deterministic.
+      return walks.filter((candidate): candidate is StopCandidate => candidate != null);
+    };
+    const [boardCandidates, alightCandidates] = await Promise.all([candidates(origin, true), candidates(destCoord, false)]);
     if (boardCandidates.length && alightCandidates.length) anyStopsInReach = true;
 
     for (const board of boardCandidates) {
@@ -260,6 +268,8 @@ export async function computeTripOptions(input: MultimodalInput): Promise<TripOp
     }
   }
 
+  const walkOnly = await walkOnlyRequest;
+  const walk = directWalk;
   const bus = best ? makeJourney('bus', destination, best.segments, best.totalSec, now) : null;
   return {
     walk,

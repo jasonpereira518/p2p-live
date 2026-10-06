@@ -169,6 +169,8 @@ export interface LiveSnapshot {
   vehicles: LiveVehicle[];
   arrivalsByStop: Record<string, LiveStopArrival[]>;
   messages: ServiceMessage[];
+  /** Notices are refreshing without delaying bus data. */
+  messagesPending?: boolean;
 }
 
 /** An arrival as shown in the UI, from live data or the timetable. */

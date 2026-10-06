@@ -311,8 +311,8 @@
   gap: 8px;
   padding: 12px 16px;
   border-bottom: var(--rider-hairline) solid var(--rider-separator);
-  animation: trip-row 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
-  animation-delay: calc(var(--i, 0) * 60ms);
+  animation: trip-row 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(min(var(--i, 0), 5) * 12ms);
 }
 .passenger-app .trip-view .trip-steps > li:last-child { border-bottom: 0; }
 .passenger-app .trip-view .trip-steps > li > time {

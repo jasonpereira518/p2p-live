@@ -40,11 +40,11 @@ function createGmvService({
   const lastSeenPattern = {};
 
   async function buildNetwork() {
-    const rawRoutes = await client.get('/routes');
     const stopsById = new Map();
-    const builtRoutes = await Promise.all(
-      routeList.map(async (route) => {
-        const raw = (Array.isArray(rawRoutes) ? rawRoutes : []).find((r) => r.id === route.gmvId) || {};
+    // Route metadata is independent of pattern/stop discovery: start both together.
+    const [rawRoutes, routePatterns] = await Promise.all([
+      client.get('/routes'),
+      Promise.all(routeList.map(async (route) => {
         const rawPatterns = await client.get(`/routes/${route.gmvId}/patterns`);
         const patterns = await Promise.all(
           (Array.isArray(rawPatterns) ? rawPatterns : []).map(async (p) => {
@@ -55,17 +55,21 @@ function createGmvService({
             return normalizePattern(p, rawStops);
           })
         );
-        return {
-          id: route.id,
-          gmvId: route.gmvId,
-          name: route.name,
-          shortName: raw.shortName || route.name,
-          color: raw.color || null,
-          textColor: raw.textColor || null,
-          patterns,
-        };
-      })
-    );
+        return { route, patterns };
+      })),
+    ]);
+    const builtRoutes = routePatterns.map(({ route, patterns }) => {
+      const raw = (Array.isArray(rawRoutes) ? rawRoutes : []).find((r) => r.id === route.gmvId) || {};
+      return {
+        id: route.id,
+        gmvId: route.gmvId,
+        name: route.name,
+        shortName: raw.shortName || route.name,
+        color: raw.color || null,
+        textColor: raw.textColor || null,
+        patterns,
+      };
+    });
     return { routes: builtRoutes, stops: [...stopsById.values()] };
   }
 
@@ -108,37 +112,29 @@ function createGmvService({
 
   async function buildSnapshotCore() {
     const t = now();
-    const perRoute = await Promise.all(
-      routeList.map(async (route) => {
-        const raw = await client.get(`/routes/${route.gmvId}/vehicles`);
-        return { route, vehicles: (Array.isArray(raw) ? raw : []).map((v) => normalizeVehicle(v, route, t)) };
-      })
-    );
-
     const activePatternIds = {};
-    const arrivalRequests = [];
-    for (const { route, vehicles } of perRoute) {
-      if (vehicles.length === 0) continue;
+    // Each route can fetch its arrivals as soon as its own vehicles arrive.
+    const perRoute = await Promise.all(routeList.map(async (route) => {
+      const raw = await client.get(`/routes/${route.gmvId}/vehicles`);
+      const vehicles = (Array.isArray(raw) ? raw : []).map((v) => normalizeVehicle(v, route, t));
       const reported = vehicles.map((v) => v.patternId).filter((id) => id != null);
       if (reported.length > 0) lastSeenPattern[route.id] = mostCommon(reported);
       const patternIds = new Set(reported);
-      if (patternIds.size === 0) {
+      if (vehicles.length > 0 && patternIds.size === 0) {
         const fallback = lastSeenPattern[route.id] ?? defaultPattern[route.id];
         if (fallback != null) patternIds.add(fallback);
       }
       if (patternIds.size > 0) activePatternIds[route.id] = reported.length > 0 ? mostCommon(reported) : [...patternIds][0];
-      for (const patternId of patternIds) arrivalRequests.push({ route, patternId });
-    }
-
-    const groups = await Promise.all(
-      arrivalRequests.map(async ({ route, patternId }) => {
+      const groups = await Promise.all([...patternIds].map(async (patternId) => {
         try {
           return { routeId: route.id, arrivals: await client.get(`/routes/${route.gmvId}/patterns/${patternId}/arrivals`) };
         } catch {
           return { routeId: route.id, arrivals: [] };
         }
-      })
-    );
+      }));
+      return { vehicles, groups };
+    }));
+    const groups = perRoute.flatMap((r) => r.groups);
     const { byVehicle, byStop } = buildArrivalIndexes(groups);
     const vehicles = perRoute.flatMap((r) => r.vehicles).map((v) => attachUpcomingStops(v, byVehicle));
 
@@ -152,12 +148,31 @@ function createGmvService({
   }
 
   async function getSnapshot() {
-    const [messages, core] = await Promise.all([
-      getMessages(),
+    // Notices refresh in the background if slow; they must not hold up ready bus data.
+    let noticeTimer;
+    let completedNotices;
+    const cachedMessages = () => {
+      const last = cache.peek('messages');
+      return last && now() - last.fetchedAt < config.MESSAGES_TTL_MS + config.MESSAGES_STALE_MS
+        ? last.value.filter(m => isMessageActive(m, now())) : [];
+    };
+    const noticeBudgetMs = cache.peek('snapshot') ? 0 : 150;
+    const noticesRequest = Promise.race([
+      getMessages().then(messages => (completedNotices = { messages, messagesPending: false })),
+      new Promise(resolve => {
+        noticeTimer = setTimeout(() => {
+          resolve({ messages: cachedMessages(), messagesPending: true });
+        }, noticeBudgetMs);
+      }),
+    ]).finally(() => clearTimeout(noticeTimer));
+    const [notices, core] = await Promise.all([
+      noticesRequest,
       cache
         .getOrFetch('snapshot', config.SNAPSHOT_TTL_MS, buildSnapshotCore, { staleMs: config.SNAPSHOT_STALE_MS })
         .catch(() => null),
     ]);
+    // Recheck expiry at response time, including a slow vehicle refresh.
+    const responseNotices = { ...(completedNotices || notices), messages: cachedMessages() };
     if (!core) {
       return {
         fetchedAt: new Date(now()).toISOString(),
@@ -165,10 +180,10 @@ function createGmvService({
         activePatternIds: {},
         vehicles: [],
         arrivalsByStop: {},
-        messages,
+        ...responseNotices,
       };
     }
-    return { ...core.value, status: core.stale ? 'degraded' : core.value.status, messages };
+    return { ...core.value, status: core.stale ? 'degraded' : core.value.status, ...responseNotices };
   }
 
   function diagnostics() {

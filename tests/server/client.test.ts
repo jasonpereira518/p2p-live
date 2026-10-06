@@ -11,6 +11,18 @@ function okFetch(body: unknown) {
 }
 
 describe('createGmvClient', () => {
+  it('records bounded endpoint latency/outcome without credentials and tolerates logging failures', async () => {
+    let t = 0;
+    const onTiming = vi.fn(() => { throw new Error('logger failed'); });
+    const client = createGmvClient({ apiKey: KEY, now: () => t, onTiming,
+      fetchImpl: async () => { t += 1100; return { ok: true, json: async () => [] }; } });
+    await expect(client.get('/routes')).resolves.toEqual([]);
+    expect(client.stats().endpointTimings).toEqual([{ path: '/routes', durationMs: 1100, outcome: 'ok' }]);
+    expect(JSON.stringify(client.stats())).not.toContain(KEY);
+    expect(onTiming).toHaveBeenCalledWith({ path: '/routes', durationMs: 1100, outcome: 'ok' });
+    for (let i = 0; i < 51; i++) await client.get(`/routes/${i}`);
+    expect(client.stats().endpointTimings).toHaveLength(50);
+  });
   it('sends Api-Key and Accept headers and returns parsed JSON', async () => {
     const fetchImpl = okFetch([{ id: 1 }]);
     const client = createGmvClient({ apiKey: KEY, baseUrl: 'https://gmv.test/portal', fetchImpl });

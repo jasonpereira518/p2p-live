@@ -38,13 +38,13 @@ export function mergeSnapshotStops(snapshot: LiveSnapshot): LiveSnapshot {
 }
 
 export async function fetchNetwork(signal?: AbortSignal): Promise<TransitNetwork> {
-  const res = await fetch(`${API}/api/live/network`, { signal });
+  const res = await fetch(`${API}/api/live/network`, { signal: signal ?? AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`Transit network request failed (${res.status})`);
   return mergeNetworkStops(withDisplayNames((await res.json()) as TransitNetwork));
 }
 
 export async function fetchSnapshot(signal?: AbortSignal): Promise<LiveSnapshot> {
-  const res = await fetch(`${API}/api/live/snapshot`, { signal, cache: 'no-store' });
+  const res = await fetch(`${API}/api/live/snapshot`, { signal: signal ?? AbortSignal.timeout(15000), cache: 'no-store' });
   if (!res.ok) throw new Error(`Live snapshot request failed (${res.status})`);
   return mergeSnapshotStops((await res.json()) as LiveSnapshot);
 }

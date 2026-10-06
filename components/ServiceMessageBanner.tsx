@@ -19,7 +19,7 @@ export function ServiceMessageBanner() {
   const { snapshot } = useTransit();
   const [dismissed, setDismissed] = useState<Set<string>>(() => readDismissed());
   const messages = getBannerMessages(snapshot?.messages ?? [], dismissed);
-  if (messages.length === 0) return null;
+  if (messages.length === 0 && !snapshot?.messagesPending) return null;
 
   const dismiss = (id: string) => {
     const next = new Set(dismissed);
@@ -34,6 +34,9 @@ export function ServiceMessageBanner() {
 
   return (
     <>
+      {snapshot?.messagesPending && messages.length === 0 && <div role="status" className="rider-banner is-info pointer-events-auto">
+        <p className="rider-banner-meta">Checking service notices…</p>
+      </div>}
       {messages.map((m) => (
         <div key={m.id} role="status" className="rider-banner is-info pointer-events-auto">
           <button

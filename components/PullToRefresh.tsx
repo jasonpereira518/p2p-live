@@ -5,8 +5,6 @@ import { Bus } from 'lucide-react';
 const THRESHOLD = 64;
 const MAX_PULL = 96;
 const HOLD = 52;
-/** Keep the bus on screen long enough to read, even when the refresh is instant. */
-const MIN_BUSY_MS = 900;
 
 export function PullToRefresh({ onRefresh, children }: { onRefresh: () => Promise<void>; children: React.ReactNode }) {
   const root = useRef<HTMLDivElement>(null);
@@ -43,7 +41,7 @@ export function PullToRefresh({ onRefresh, children }: { onRefresh: () => Promis
       working = true;
       setBusy(true);
       set(HOLD);
-      await Promise.all([onRefreshRef.current().catch(() => undefined), new Promise(r => setTimeout(r, MIN_BUSY_MS))]);
+      await onRefreshRef.current().catch(() => undefined);
       working = false;
       setBusy(false);
       set(0);

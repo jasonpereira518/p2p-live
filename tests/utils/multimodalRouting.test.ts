@@ -20,6 +20,29 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 8, 14, 14
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('computeTripOptions', () => {
+  it('publishes a usable walk while bus candidates are pending and preserves the final plan', async () => {
+    const origin = { lat: 35.90331, lon: -79.04031 };
+    const destination = { id: 'progressive', name: 'Progressive destination', lat: 35.91031, lon: -79.04031 };
+    const onWalkReady = vi.fn();
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const params = new URL(url, 'http://localhost').searchParams;
+      const [from, to] = ['from', 'to'].map(k => params.get(k)!.split(',').map(Number));
+      const direct = from[1] === origin.lat && to[1] === destination.lat;
+      await new Promise(resolve => setTimeout(resolve, direct ? 100 : 300));
+      return Response.json({ durationSec: 300, distanceMeters: 400, geometry: { type: 'LineString', coordinates: [from, to] }, steps: [] });
+    }));
+    let completed = false;
+    const pending = computeTripOptions({ origin, destination, network, snapshot: makeSnapshot(), onWalkReady }).then(options => { completed = true; return options; });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(onWalkReady).toHaveBeenCalledOnce();
+    expect(onWalkReady.mock.calls[0][0].segments[0].type).toBe('walk');
+    expect(completed).toBe(false);
+    await vi.runAllTimersAsync();
+    const options = await pending;
+    expect(options.walk).toBe(onWalkReady.mock.calls[0][0]);
+    expect(options.bus).not.toBeNull();
+  });
+
   const trip = (snapshot = makeSnapshot(), origin = stop('b')) =>
     computeTripOptions({ origin, destination: { id: 'dest', name: 'Stop C area', lat: stop('c').lat, lon: stop('c').lon }, network, snapshot });
 
@@ -39,6 +62,27 @@ describe('computeTripOptions', () => {
   it('explains a missing bus option', async () => {
     expect(await trip(makeSnapshot({ vehicles: [], arrivalsByStop: {} }))).toMatchObject({ bus: null, busUnavailable: 'not-running' });
     expect(await trip(makeSnapshot(), { id: 'far', name: 'Far', lat: 35.95, lon: -79.1 })).toMatchObject({ bus: null, busUnavailable: 'no-stops' });
+  });
+  it('overlaps cold walks while preserving the best bus itinerary', async () => {
+    vi.resetModules();
+    const { computeTripOptions: coldPlan } = await import('../../utils/multimodalRouting');
+    const immediateFetch = fetch;
+    let inFlight = 0, peak = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      peak = Math.max(peak, ++inFlight);
+      await new Promise(resolve => setTimeout(resolve, 150));
+      inFlight--;
+      return immediateFetch(url);
+    }));
+    const start = Date.now();
+    const pending = coldPlan({ origin: stop('b'), destination: { ...stop('c'), id: 'cold', name: 'Stop C' }, network, snapshot: makeSnapshot() });
+    await vi.runAllTimersAsync();
+    const options = await pending;
+    expect(Date.now() - start).toBeLessThan(900);
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(4);
+    expect(options.recommended).toBe('bus');
+    expect(options.bus?.segments[1]).toMatchObject({ fromName: 'Stop B', toName: 'Stop C', durationSec: 210 });
   });
 });
 

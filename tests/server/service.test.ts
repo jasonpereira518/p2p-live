@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -67,6 +67,22 @@ function setup(data = fixtures()) {
 }
 
 describe('getNetwork', () => {
+  it('discovers patterns and stops while independent route metadata is still pending', async () => {
+    const data = fixtures();
+    const client = fakeClient(data);
+    const get = client.get.bind(client);
+    let resolveMetadata!: (value: unknown) => void;
+    client.get = (path: string) => path === '/routes'
+      ? new Promise(resolve => { resolveMetadata = resolve; }) : get(path);
+    const service = createGmvService({ client });
+    const pending = service.getNetwork();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(client.state.calls).toContain('/routes/6566/patterns/100/stops');
+    resolveMetadata(data['/routes']);
+    expect((await pending).routes.find((r: any) => r.id === 'P2P_EXPRESS').shortName).toBe('Express');
+  });
+
   it('recovers from a cold-load failure after 30 seconds, not six hours', async () => {
     const { service, client, advance } = setup();
     client.state.failing = true;
@@ -128,6 +144,72 @@ describe('getNetwork', () => {
 });
 
 describe('getSnapshot', () => {
+  it('rechecks notice expiry when a vehicle response arrives later', async () => {
+    const data = fixtures();
+    (data['/v2/messages'] as any[])[0].end = '2026-09-14T23:00:08Z';
+    const { service, client, advance } = setup(data);
+    expect((await service.getSnapshot()).messages).toHaveLength(1);
+    const get = client.get.bind(client);
+    let finish!: (value: unknown) => void;
+    client.get = (path: string) => path === '/routes/6564/vehicles' ? new Promise(resolve => { finish = resolve; }) : get(path);
+    advance(6000);
+    const pending = service.getSnapshot();
+    await Promise.resolve(); await Promise.resolve();
+    advance(3000);
+    finish([]);
+    expect((await pending).messages).toEqual([]);
+  });
+
+  it('does not block live buses on slow notices, then includes the completed notices on the next poll', async () => {
+    vi.useFakeTimers();
+    try {
+      const data = fixtures(), client = fakeClient(data), get = client.get.bind(client);
+      let finish!: (value: unknown) => void;
+      client.get = (path: string) => path === '/v2/messages' ? new Promise(resolve => { finish = resolve; }) : get(path);
+      const service = createGmvService({ client });
+      const pending = service.getSnapshot();
+      await vi.advanceTimersByTimeAsync(150);
+      expect(await pending).toMatchObject({ status: 'live', messagesPending: true, messages: [] });
+      finish(data['/v2/messages']);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(await service.getSnapshot()).toMatchObject({ status: 'live', messagesPending: false, messages: [expect.objectContaining({ title: 'Detour' })] });
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('keeps last-good active notices during refresh but never extends their stale window', async () => {
+    vi.useFakeTimers();
+    try {
+      const { service, client, advance } = setup();
+      const initial = await service.getSnapshot();
+      const get = client.get.bind(client);
+      client.get = (path: string) => path === '/v2/messages' ? new Promise(() => {}) : get(path);
+      advance(60_000);
+      let pending = service.getSnapshot();
+      await vi.advanceTimersByTimeAsync(150);
+      expect(await pending).toMatchObject({ messagesPending: true, messages: initial.messages });
+      advance(5 * 60_000);
+      pending = service.getSnapshot();
+      await vi.advanceTimersByTimeAsync(150);
+      expect(await pending).toMatchObject({ messagesPending: true, messages: [] });
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('fetches Express arrivals without waiting for Baity Hill vehicles', async () => {
+    const data = fixtures();
+    const client = fakeClient(data);
+    const get = client.get.bind(client);
+    let resolveBaity!: (value: unknown) => void;
+    client.get = (path: string) => path === '/routes/6564/vehicles'
+      ? new Promise(resolve => { resolveBaity = resolve; }) : get(path);
+    const service = createGmvService({ client });
+    const pending = service.getSnapshot();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(client.state.calls).toContain('/routes/6566/patterns/100/arrivals');
+    resolveBaity([]);
+    expect((await pending).vehicles[0].nextStopId).toBe('2');
+  });
+
   it('returns live vehicles with next stops, per-stop arrivals, active patterns and messages', async () => {
     const { service } = setup();
     const snap = await service.getSnapshot();
