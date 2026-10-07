@@ -13,7 +13,7 @@ import { useTransit } from './context/TransitProvider';
 import { getStarredPlaces, toggleStarredPlace } from './storage/starredPlaces';
 import { eligibleCampusLocation } from './utils/mapPresentation';
 import './components/passenger.css';
-import './components/ios-rider.css';
+import './components/classic-rider.css';
 import { ServiceMessageBanner } from './components/ServiceMessageBanner';
 import { useLiveLocation } from './hooks/useLiveLocation';
 
